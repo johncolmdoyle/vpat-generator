@@ -1,0 +1,19 @@
+{
+  "name": "vpat-generator",
+  "private": true,
+  "version": "0.1.0",
+  "description": "VPAT 2.5Rev International Edition Accessibility Conformance Report generator",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace @vpat/web",
+    "build": "npm run build --workspace @vpat/shared && npm run build --workspace @vpat/web",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "npm run typecheck"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

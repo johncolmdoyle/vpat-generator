@@ -1,0 +1,100 @@
+# VPAT Generator — full local stack. Copy example.env to .env, then `docker compose up --build`.
+#   web      → http://localhost:5173
+#   api      → http://localhost:8080
+#   postgres → localhost:5432   localstack → localhost:4566
+
+name: vpat-generator
+
+x-aws-env: &aws-env
+  AWS_REGION: ${AWS_REGION:-us-east-1}
+  AWS_DEFAULT_REGION: ${AWS_REGION:-us-east-1}
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-test}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-test}
+  AWS_ENDPOINT_URL: http://localstack:4566
+  S3_BUCKET: ${S3_BUCKET:-vpat-artifacts}
+  SCAN_QUEUE_NAME: ${SCAN_QUEUE_NAME:-vpat-scan-jobs}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-vpat}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-vpat}
+      POSTGRES_DB: ${POSTGRES_DB:-vpat}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/postgres:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vpat} -d ${POSTGRES_DB:-vpat}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  localstack:
+    image: localstack/localstack:3
+    environment:
+      SERVICES: s3,sqs,secretsmanager
+      DEBUG: "0"
+      S3_BUCKET: ${S3_BUCKET:-vpat-artifacts}
+      SCAN_QUEUE_NAME: ${SCAN_QUEUE_NAME:-vpat-scan-jobs}
+      SCAN_DLQ_NAME: ${SCAN_DLQ_NAME:-vpat-scan-jobs-dlq}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      AWS_DEFAULT_REGION: ${AWS_REGION:-us-east-1}
+    ports:
+      - "4566:4566"
+    volumes:
+      - ./infra/localstack/init:/etc/localstack/init:ro
+    healthcheck:
+      test: ["CMD-SHELL", "awslocal sqs get-queue-url --queue-name ${SCAN_QUEUE_NAME:-vpat-scan-jobs} || exit 1"]
+      interval: 6s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    environment:
+      <<: *aws-env
+      DATABASE_URL: postgres://${POSTGRES_USER:-vpat}:${POSTGRES_PASSWORD:-vpat}@postgres:5432/${POSTGRES_DB:-vpat}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-4-6}
+      PORT: "8080"
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    environment:
+      <<: *aws-env
+      DATABASE_URL: postgres://${POSTGRES_USER:-vpat}:${POSTGRES_PASSWORD:-vpat}@postgres:5432/${POSTGRES_DB:-vpat}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-4-6}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8080}
+    ports:
+      - "5173:80"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
