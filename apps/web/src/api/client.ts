@@ -18,7 +18,15 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { 'Content-Type': 'application/json' },
     ...init,
   });
-  if (!res.ok) throw new Error(`${init?.method ?? 'GET'} ${path} → ${res.status}`);
+  if (!res.ok) {
+    let body = '';
+    try {
+      body = await res.text();
+    } catch {
+      /* ignore */
+    }
+    throw new Error(`${init?.method ?? 'GET'} ${path} → ${res.status} ${body}`.trim());
+  }
   return (await res.json()) as T;
 }
 

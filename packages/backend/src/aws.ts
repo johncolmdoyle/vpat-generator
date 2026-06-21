@@ -26,6 +26,14 @@ export const s3 = new S3Client({ ...common, forcePathStyle: env.aws.forcePathSty
 export const sqs = new SQSClient(common);
 export const secrets = new SecretsManagerClient(common);
 
+// Separate client whose endpoint is reachable from the browser, used only to mint
+// presigned download URLs (the signature covers the host, so we can't just rewrite it).
+const s3Presigner = new S3Client({
+  ...common,
+  endpoint: env.s3PublicEndpoint,
+  forcePathStyle: env.aws.forcePathStyle,
+});
+
 /* ---------- S3 ---------- */
 
 export async function s3Put(key: string, body: Buffer | Uint8Array, contentType: string): Promise<void> {
@@ -34,9 +42,9 @@ export async function s3Put(key: string, body: Buffer | Uint8Array, contentType:
   );
 }
 
-/** Short-lived presigned download URL. */
+/** Short-lived presigned download URL, signed for the browser-reachable endpoint. */
 export async function s3PresignGet(key: string, expiresIn = 900): Promise<string> {
-  return getSignedUrl(s3, new GetObjectCommand({ Bucket: env.s3Bucket, Key: key }), { expiresIn });
+  return getSignedUrl(s3Presigner, new GetObjectCommand({ Bucket: env.s3Bucket, Key: key }), { expiresIn });
 }
 
 /* ---------- SQS ---------- */

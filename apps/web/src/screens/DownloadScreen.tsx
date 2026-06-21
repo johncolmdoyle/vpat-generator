@@ -49,6 +49,7 @@ export function DownloadScreen({
   const edited = findings.filter((f) => f.edited).length;
   const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
   const [downloaded, setDownloaded] = useState<{ name: string; real: boolean } | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
   const domain = state.domain || 'clarus-health.example';
   const level = state.level ?? 'AA';
   const levelRank = { A: 1, AA: 2, AAA: 3 }[level];
@@ -96,6 +97,7 @@ export function DownloadScreen({
     `VPAT2.5Rev-INT-${domain.replace(/\..*/, '')}-${today.replace(/\s|,/g, '')}.${ext(label)}`;
 
   const onDownload = (label: string) => {
+    setExportError(null);
     if (hasApi && reportId) {
       const fmt = ext(label) as ExportFormat;
       api
@@ -104,9 +106,10 @@ export function DownloadScreen({
           setDownloaded({ name: r.filename, real: true });
           window.open(r.url, '_blank', 'noopener');
         })
-        .catch((e) => {
+        .catch((e: unknown) => {
           console.error('export failed', e);
-          setDownloaded({ name: mockName(label), real: false });
+          setDownloaded(null);
+          setExportError(e instanceof Error ? e.message : String(e));
         });
     } else {
       setDownloaded({ name: mockName(label), real: false });
@@ -298,6 +301,18 @@ export function DownloadScreen({
                 (no file generated in this build)
               </span>
             )}
+          </div>
+        )}
+        {exportError && (
+          <div
+            className="row screen"
+            style={{ gap: 9, marginTop: 16, padding: '11px 14px', background: 'var(--bad-bg)', borderRadius: 'var(--radius-sm)' }}
+            role="alert"
+          >
+            <span style={{ color: 'var(--bad)' }}>
+              <Icons.alert size={17} />
+            </span>
+            <span style={{ fontSize: 12.5, color: 'var(--bad)' }}>Export failed — {exportError}</span>
           </div>
         )}
         <div className="faint" style={{ fontSize: 11.5, marginTop: 14 }}>
