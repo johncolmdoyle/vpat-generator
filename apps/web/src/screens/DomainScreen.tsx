@@ -1,13 +1,14 @@
 /* Step 1 — Target: domain, WCAG conformance target, crawl scope. */
 import { useState } from 'react';
-import type { CrawlScope, WcagTarget, WizardForm } from '@vpat/shared';
+import { EDITION_META, standardsForEdition, type CrawlScope, type ReportEdition, type WcagTarget, type WizardForm } from '@vpat/shared';
 import { Icons } from '../ui/icons.js';
 import { NavBar } from '../ui/components.js';
 
-const INT_STANDARDS = [
-  { label: 'WCAG 2.0 / 2.1 / 2.2', note: 'W3C Web Content Accessibility Guidelines' },
-  { label: 'Revised Section 508', note: 'U.S. federal procurement' },
-  { label: 'EN 301 549', note: 'European public sector (V3.1.1 & V3.2.1)' },
+const EDITIONS: Array<{ id: ReportEdition; label: string; note: string }> = [
+  { id: 'WCAG', label: 'WCAG', note: 'W3C web accessibility-focused report' },
+  { id: '508', label: 'Revised 508', note: 'U.S. federal procurement requirements' },
+  { id: 'EU', label: 'EN 301 549', note: 'European public-sector procurement requirements' },
+  { id: 'INT', label: 'International', note: 'WCAG + Section 508 + EN 301 549 together' },
 ];
 const LEVELS: [WcagTarget, string, string][] = [
   ['A', 'Level A', 'Minimum'],
@@ -37,16 +38,18 @@ export function DomainScreen({
   onUpgrade,
 }: {
   state: WizardForm;
-  onNext: (v: { domain: string; level: WcagTarget; scope: CrawlScope }) => void;
+  onNext: (v: { domain: string; level: WcagTarget; edition: ReportEdition; scope: CrawlScope }) => void;
   blockedMessage?: string | null;
   onUpgrade?: (() => void) | null;
 }) {
   const [domain, setDomain] = useState(state.domain ?? '');
   const [level, setLevel] = useState<WcagTarget>(state.level ?? 'AA');
+  const [edition, setEdition] = useState<ReportEdition>(state.edition ?? 'INT');
   const [scope, setScope] = useState<CrawlScope>(state.scope ?? 'auto');
   const valid = domain.trim().length > 2 && domain.includes('.');
 
-  const commit = () => onNext({ domain: domain.trim(), level, scope });
+  const commit = () => onNext({ domain: domain.trim(), level, edition, scope });
+  const standards = standardsForEdition(edition);
 
   return (
     <div className="screen" style={{ maxWidth: 720, margin: '0 auto' }}>
@@ -55,8 +58,24 @@ export function DomainScreen({
       <p className="lead">
         We’ll crawl the site, run automated checks, and assemble a draft{' '}
         <strong>Accessibility Conformance Report</strong> on the VPAT® 2.5Rev{' '}
-        <strong>International Edition</strong> template.
+        <strong>{EDITION_META[edition].fullLabel}</strong> template.
       </p>
+
+      <div style={{ marginTop: 24 }}>
+        <div className="micro muted" style={{ marginBottom: 12 }}>
+          VPAT edition
+        </div>
+        <div className="row wrap" style={{ gap: 8 }}>
+          {EDITIONS.map(({ id, label, note }) => (
+            <button key={id} onClick={() => setEdition(id)} style={pillStyle(edition === id)} title={note}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <p className="faint" style={{ fontSize: 12.5, marginTop: 10 }}>
+          {EDITION_META[edition].summary}
+        </p>
+      </div>
 
       <div className="field" style={{ marginTop: 30 }}>
         <label htmlFor="dom">Website URL</label>
@@ -83,19 +102,19 @@ export function DomainScreen({
 
       <div className="panel" style={{ marginTop: 28, padding: '16px 18px' }}>
         <div className="row between" style={{ marginBottom: 12 }}>
-          <span className="micro muted">Standards covered — International Edition</span>
-          <span className="tag">All three included</span>
+          <span className="micro muted">Standards covered — {EDITION_META[edition].fullLabel}</span>
+          <span className="tag">{standards.length} included</span>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 10 }}>
-          {INT_STANDARDS.map((s) => (
-            <div key={s.label} className="row" style={{ gap: 9, alignItems: 'flex-start' }}>
+          {standards.map((s) => (
+            <div key={s.id} className="row" style={{ gap: 9, alignItems: 'flex-start' }}>
               <span style={{ color: 'var(--ok)', marginTop: 1 }}>
                 <Icons.checkCircle size={16} />
               </span>
               <span>
-                <div style={{ fontWeight: 600, fontSize: 13 }}>{s.label}</div>
+                <div style={{ fontWeight: 600, fontSize: 13 }}>{s.group}</div>
                 <div className="faint" style={{ fontSize: 11.5 }}>
-                  {s.note}
+                  {s.levels ? `Levels ${s.levels.join(' / ')}` : 'Included in this report'}
                 </div>
               </span>
             </div>

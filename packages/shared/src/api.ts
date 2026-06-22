@@ -11,6 +11,7 @@ import type {
   ConformanceLevel,
   CrawlScope,
   Finding,
+  ReportEdition,
   SubscriptionPlan,
   WcagTarget,
 } from './types.js';
@@ -26,7 +27,7 @@ export interface ReportRecord {
   id: string;
   domain: string;
   wcagTarget: WcagTarget;
-  edition: 'INT';
+  edition: ReportEdition;
   scope: CrawlScope;
   status: ReportStatus;
   productName: string | null;
@@ -173,6 +174,7 @@ export interface AdminSupportRequestDetail {
 export interface CreateReportRequest {
   domain: string;
   wcagTarget: WcagTarget;
+  edition: ReportEdition;
   scope: CrawlScope;
 }
 export interface CreateReportResponse {
@@ -314,6 +316,7 @@ export interface ScanJobMessage {
   scanId: string;
   reportId: string;
   domain: string;
+  edition: ReportEdition;
   scope: CrawlScope;
   authMode: AuthMode;
   /** Secrets Manager id holding the Step-2 credentials, when authMode = 'auth'. */

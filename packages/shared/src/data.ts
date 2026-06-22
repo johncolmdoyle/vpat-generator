@@ -8,7 +8,9 @@ import type {
   ConformanceLevel,
   Criterion,
   Page,
+  ReportEdition,
   ReportDef,
+  ReportKind,
   ScanPhase,
   Standard,
   Term,
@@ -16,6 +18,41 @@ import type {
 
 export const VERSION = 'VPAT® 2.5Rev';
 export const EDITION = 'International Edition';
+export const DEFAULT_EDITION: ReportEdition = 'INT';
+export const EDITION_META: Record<
+  ReportEdition,
+  {
+    shortLabel: string;
+    fullLabel: string;
+    summary: string;
+    reportKinds: ReportKind[];
+  }
+> = {
+  WCAG: {
+    shortLabel: 'WCAG Edition',
+    fullLabel: 'WCAG Edition',
+    summary: 'Focused on W3C WCAG 2.0, 2.1, and 2.2 accessibility criteria.',
+    reportKinds: ['wcag'],
+  },
+  '508': {
+    shortLabel: '508 Edition',
+    fullLabel: 'Revised Section 508 Edition',
+    summary: 'Combines WCAG evaluation with the U.S. federal Revised Section 508 requirements.',
+    reportKinds: ['wcag', '508'],
+  },
+  EU: {
+    shortLabel: 'EU Edition',
+    fullLabel: 'EN 301 549 Edition',
+    summary: 'Combines WCAG evaluation with EN 301 549 requirements used in European procurement.',
+    reportKinds: ['wcag', 'en'],
+  },
+  INT: {
+    shortLabel: 'International Edition',
+    fullLabel: 'International Edition',
+    summary: 'Combines WCAG, Revised Section 508, and EN 301 549 in one report set.',
+    reportKinds: ['wcag', '508', 'en'],
+  },
+};
 
 /**
  * Default "Evaluation Methods Used" text describing the tooling this product runs.
@@ -55,7 +92,7 @@ export const TERMS: Term[] = [
   { term: 'Not Evaluated', def: 'The product has not been evaluated against the criterion. Used only for WCAG Level AAA.' },
 ];
 
-/** Applicable Standards / Guidelines covered by the International edition. */
+/** Applicable Standards / Guidelines available across VPAT editions. */
 export const STANDARDS: Standard[] = [
   { id: 'wcag20', group: 'Web Content Accessibility Guidelines 2.0', levels: ['A', 'AA', 'AAA'] },
   { id: 'wcag21', group: 'Web Content Accessibility Guidelines 2.1', levels: ['A', 'AA', 'AAA'] },
@@ -63,6 +100,20 @@ export const STANDARDS: Standard[] = [
   { id: '508', group: 'Revised Section 508 (Jan 18, 2017, corrected Jan 22, 2018)', levels: null },
   { id: 'en', group: 'EN 301 549 V3.1.1 (2019-11) and V3.2.1 (2021-03)', levels: null },
 ];
+
+export function standardsForEdition(edition: ReportEdition): Standard[] {
+  switch (edition) {
+    case 'WCAG':
+      return STANDARDS.filter((s) => s.id.startsWith('wcag'));
+    case '508':
+      return STANDARDS.filter((s) => s.id === 'wcag20' || s.id === '508');
+    case 'EU':
+      return STANDARDS.filter((s) => s.id === 'wcag21' || s.id === 'en');
+    case 'INT':
+    default:
+      return STANDARDS;
+  }
+}
 
 export const PAGES: Page[] = [
   { url: '/', title: 'Home', auth: false },
@@ -123,6 +174,11 @@ export const REPORTS: ReportDef[] = [
     ],
   },
 ];
+
+export function reportsForEdition(edition: ReportEdition): ReportDef[] {
+  const kinds = new Set(EDITION_META[edition].reportKinds);
+  return REPORTS.filter((report) => kinds.has(report.id));
+}
 
 // ---- WCAG 2.x success criteria (Level A + AA), with AI-drafted findings ----
 // `ver` is the WCAG version that introduced the criterion; `section` mirrors `level`.
@@ -316,3 +372,13 @@ export const AUTO: AutoRow[] = [
 
 /** Approvable findings: WCAG (A+AA) + parsing note + 508 FPC + EN FPS. */
 export const CRITERIA: Criterion[] = [...WCAG, PARSING_NOTE, ...FPC_508, ...FPS_EN];
+
+export function autoRowsForEdition(edition: ReportEdition): AutoRow[] {
+  const kinds = new Set(EDITION_META[edition].reportKinds);
+  return AUTO.filter((row) => kinds.has(row.report));
+}
+
+export function criteriaForEdition(edition: ReportEdition): Criterion[] {
+  const kinds = new Set(EDITION_META[edition].reportKinds);
+  return CRITERIA.filter((criterion) => kinds.has(criterion.report));
+}

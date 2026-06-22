@@ -26,17 +26,19 @@ import {
 } from 'docx';
 import PDFDocument from 'pdfkit';
 import {
-  REPORTS,
+  EDITION_META,
   TERMS,
   TEST_PROCEDURE,
   VERSION,
-  EDITION,
   DEFAULT_EVALUATION_METHODS,
   DRAFT_DISCLAIMER,
-  wcagAlsoApplies,
+  crossReferenceForEdition,
+  reportsForEdition,
   type AutoRow,
   type ExportFormat,
   type Finding,
+  type ReportDef,
+  type ReportEdition,
   type ReportDetail,
   type ReportRecord,
   type WcagTarget,
@@ -65,7 +67,7 @@ function dateStamp(): string {
   return longDate().replace(/\s|,/g, '');
 }
 function filename(detail: ReportDetail, ext: string): string {
-  return `VPAT2.5Rev-INT-${slug(detail.report.domain)}-${dateStamp()}-DRAFT.${ext}`;
+  return `VPAT2.5Rev-${detail.report.edition}-${slug(detail.report.domain)}-${dateStamp()}-DRAFT.${ext}`;
 }
 
 function val(s: string | null | undefined, fallback: string): string {
@@ -93,16 +95,36 @@ function productInfo(r: ReportRecord): [string, string][] {
 }
 
 /** Applicable Standards / Guidelines rows: [standard, included-for]. */
-function standardsRows(target: WcagTarget): [string, string][] {
+function standardsRows(edition: ReportEdition, target: WcagTarget): [string, string][] {
   const rank = { A: 1, AA: 2, AAA: 3 }[target];
   const levels = ['Level A', rank >= 2 ? 'Level AA' : '', rank >= 3 ? 'Level AAA' : ''].filter(Boolean).join(', ');
-  return [
-    ['WCAG 2.0', levels],
-    ['WCAG 2.1', levels],
-    ['WCAG 2.2', levels],
-    ['Revised Section 508 (2017)', 'Included'],
-    ['EN 301 549 (V3.1.1 / V3.2.1)', 'Included'],
-  ];
+  switch (edition) {
+    case 'WCAG':
+      return [
+        ['WCAG 2.0', levels],
+        ['WCAG 2.1', levels],
+        ['WCAG 2.2', levels],
+      ];
+    case '508':
+      return [
+        ['WCAG 2.0', ['Level A', rank >= 2 ? 'Level AA' : ''].filter(Boolean).join(', ')],
+        ['Revised Section 508 (2017)', 'Included'],
+      ];
+    case 'EU':
+      return [
+        ['WCAG 2.1', ['Level A', rank >= 2 ? 'Level AA' : ''].filter(Boolean).join(', ')],
+        ['EN 301 549 (V3.1.1 / V3.2.1)', 'Included'],
+      ];
+    case 'INT':
+    default:
+      return [
+        ['WCAG 2.0', levels],
+        ['WCAG 2.1', levels],
+        ['WCAG 2.2', levels],
+        ['Revised Section 508 (2017)', 'Included'],
+        ['EN 301 549 (V3.1.1 / V3.2.1)', 'Included'],
+      ];
+  }
 }
 
 const ATTEST_HEADING = 'Evaluator Attestation';
@@ -125,7 +147,7 @@ function attestationText(r: ReportRecord): string {
 function buildVpat(detail: ReportDetail): ExportArtifact {
   const payload = {
     version: VERSION,
-    edition: EDITION,
+    edition: EDITION_META[detail.report.edition].fullLabel,
     status: 'draft',
     disclaimer: DRAFT_DISCLAIMER,
     generatedAt: new Date().toISOString(),
@@ -194,10 +216,15 @@ function conformanceTable(rows: { id: string; level: string; remarks: string }[]
   return new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, borders: BORDERS, rows: [header, ...body] });
 }
 
-function wcagRemark(f: Finding): string {
+function wcagRemark(edition: ReportEdition, f: Finding): string {
   if (f.report !== 'wcag' || f.obsolete) return f.remarks;
-  const x = wcagAlsoApplies(f.id);
-  return `${f.remarks}\nAlso documents: EN 301 549 ${x.en.join(', ')}; Section 508 ${x.s508.join(', ')}.`;
+  const x = crossReferenceForEdition(edition, f.id);
+  if (!x.en.length && !x.s508.length) return f.remarks;
+  const refs = [
+    x.en.length ? `EN 301 549 ${x.en.join(', ')}` : '',
+    x.s508.length ? `Section 508 ${x.s508.join(', ')}` : '',
+  ].filter(Boolean);
+  return refs.length ? `${f.remarks}\nAlso documents: ${refs.join('; ')}.` : f.remarks;
 }
 
 function criterionLabel(f: Finding): string {
@@ -207,11 +234,20 @@ function autoLabel(a: AutoRow): string {
   return `${a.id} ${a.name}`;
 }
 
+function reportNoteForEdition(edition: ReportEdition, rep: ReportDef): string {
+  if (rep.id === 'wcag') {
+    if (edition === 'WCAG') return 'This edition focuses on the WCAG conformance tables only.';
+    if (edition === '508') return 'Tables 1 & 2 also document Revised Section 508 provisions that incorporate WCAG 2.0.';
+    if (edition === 'EU') return 'Tables 1 & 2 also document EN 301 549 provisions that incorporate WCAG 2.1.';
+  }
+  return rep.note;
+}
+
 async function buildDocx(detail: ReportDetail): Promise<ExportArtifact> {
   const r = detail.report;
   const children: (Paragraph | Table)[] = [
     new Paragraph({ text: 'Accessibility Conformance Report', heading: HeadingLevel.TITLE }),
-    new Paragraph({ children: [new TextRun({ text: `Based on ${VERSION} — ${EDITION}`, italics: true })] }),
+    new Paragraph({ children: [new TextRun({ text: `Based on ${VERSION} — ${EDITION_META[r.edition].fullLabel}`, italics: true })] }),
     new Paragraph({
       children: [new TextRun({ text: 'DRAFT — pending review and approval', bold: true, color: 'B3261E' })],
       alignment: AlignmentType.LEFT,
@@ -230,7 +266,7 @@ async function buildDocx(detail: ReportDetail): Promise<ExportArtifact> {
           tableHeader: true,
           children: [tc('Standard / Guideline', { bold: true, width: 50, shade: true }), tc('Included For', { bold: true, width: 50, shade: true })],
         }),
-        ...standardsRows(r.wcagTarget).map(([s, inc]) => new TableRow({ children: [tc(s), tc(inc)] })),
+        ...standardsRows(r.edition, r.wcagTarget).map(([s, inc]) => new TableRow({ children: [tc(s), tc(inc)] })),
       ],
     }),
     new Paragraph({ text: '' }),
@@ -248,17 +284,17 @@ async function buildDocx(detail: ReportDetail): Promise<ExportArtifact> {
     }),
   ];
 
-  for (const rep of REPORTS) {
+  for (const rep of reportsForEdition(r.edition)) {
     children.push(new Paragraph({ text: '' }));
     children.push(new Paragraph({ text: rep.name, heading: HeadingLevel.HEADING_1 }));
-    children.push(new Paragraph({ children: [new TextRun({ text: rep.note, italics: true, size: 18 })] }));
+    children.push(new Paragraph({ children: [new TextRun({ text: reportNoteForEdition(r.edition, rep), italics: true, size: 18 })] }));
     for (const sec of rep.sections) {
       const findings = detail.findings.filter((f) => f.report === rep.id && f.section === sec.id);
       const autos = detail.auto.filter((a) => a.report === rep.id && a.section === sec.id);
       if (!findings.length && !autos.length) continue;
       children.push(new Paragraph({ text: sec.name, heading: HeadingLevel.HEADING_3 }));
       const rows = [
-        ...findings.map((f) => ({ id: criterionLabel(f), level: f.status, remarks: wcagRemark(f) })),
+        ...findings.map((f) => ({ id: criterionLabel(f), level: f.status, remarks: wcagRemark(r.edition, f) })),
         ...autos.map((a) => ({ id: autoLabel(a), level: a.status, remarks: a.ref })),
       ];
       children.push(conformanceTable(rows));
@@ -369,7 +405,7 @@ function buildPdf(detail: ReportDetail): Promise<ExportArtifact> {
     watermark(doc); // page 1
 
     doc.fillColor('#1a1a2e').font('Helvetica-Bold').fontSize(20).text('Accessibility Conformance Report');
-    doc.font('Helvetica-Oblique').fontSize(11).fillColor('#666').text(`Based on ${VERSION} — ${EDITION}`);
+    doc.font('Helvetica-Oblique').fontSize(11).fillColor('#666').text(`Based on ${VERSION} — ${EDITION_META[r.edition].fullLabel}`);
     doc.moveDown(0.3);
     doc.font('Helvetica-Bold').fontSize(12).fillColor('#b3261e').text('DRAFT — pending review and approval');
     doc.font('Helvetica').fontSize(8).fillColor('#666').text(DRAFT_DISCLAIMER, { width: 495 });
@@ -381,16 +417,16 @@ function buildPdf(detail: ReportDetail): Promise<ExportArtifact> {
 
     doc.font('Helvetica-Bold').fontSize(13).fillColor('#000').text('Applicable Standards / Guidelines');
     doc.moveDown(0.3);
-    pdfTable(doc, [{ label: 'Standard / Guideline', w: 0.5 }, { label: 'Included For', w: 0.5 }], standardsRows(r.wcagTarget));
+    pdfTable(doc, [{ label: 'Standard / Guideline', w: 0.5 }, { label: 'Included For', w: 0.5 }], standardsRows(r.edition, r.wcagTarget));
 
     doc.font('Helvetica-Bold').fontSize(13).fillColor('#000').text('Terms');
     doc.moveDown(0.3);
     pdfTable(doc, [{ label: 'Term', w: 0.26 }, { label: 'Definition', w: 0.74 }], TERMS.map((t) => [t.term, t.def]));
 
-    for (const rep of REPORTS) {
+    for (const rep of reportsForEdition(r.edition)) {
       doc.addPage();
       doc.font('Helvetica-Bold').fontSize(15).fillColor('#1a1a2e').text(rep.name);
-      doc.font('Helvetica-Oblique').fontSize(8).fillColor('#666').text(rep.note, { width: 495 });
+      doc.font('Helvetica-Oblique').fontSize(8).fillColor('#666').text(reportNoteForEdition(r.edition, rep), { width: 495 });
       doc.moveDown(0.4);
       for (const sec of rep.sections) {
         const findings = detail.findings.filter((f) => f.report === rep.id && f.section === sec.id);
@@ -399,7 +435,7 @@ function buildPdf(detail: ReportDetail): Promise<ExportArtifact> {
         doc.font('Helvetica-Bold').fontSize(11).fillColor('#000').text(sec.name);
         doc.moveDown(0.2);
         const rows = [
-          ...findings.map((f) => [criterionLabel(f), f.status, wcagRemark(f)]),
+          ...findings.map((f) => [criterionLabel(f), f.status, wcagRemark(r.edition, f)]),
           ...autos.map((a) => [autoLabel(a), a.status, a.ref]),
         ];
         pdfTable(doc, [{ label: 'Criteria', w: 0.26 }, { label: 'Conformance Level', w: 0.2 }, { label: 'Remarks and Explanations', w: 0.54 }], rows);

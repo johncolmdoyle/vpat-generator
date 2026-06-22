@@ -1,11 +1,13 @@
 /** Row ⇄ DTO mappers and the static criteria → finding seed. */
 import {
   type AccountSummary,
+  DEFAULT_EDITION,
   CRITERIA,
   type ConformanceLevel,
   type Criterion,
   type Evidence,
   type Finding,
+  type ReportEdition,
   type ReportKind,
   type ReportRecord,
   type ScanRecord,
@@ -19,7 +21,7 @@ export interface ReportRow {
   id: string;
   domain: string;
   wcag_target: 'A' | 'AA' | 'AAA';
-  edition: string;
+  edition: ReportEdition;
   scope: 'auto' | 'single' | 'sitemap';
   status: ReportRecord['status'];
   product_name: string | null;
@@ -122,7 +124,7 @@ export function rowToReport(r: ReportRow): ReportRecord {
     id: r.id,
     domain: r.domain,
     wcagTarget: r.wcag_target,
-    edition: 'INT',
+    edition: r.edition ?? DEFAULT_EDITION,
     scope: r.scope,
     status: r.status,
     productName: r.product_name,

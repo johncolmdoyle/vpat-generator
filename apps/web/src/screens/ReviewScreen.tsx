@@ -2,11 +2,12 @@
    This is the human-approval gate; the AI draft never ships unedited. */
 import { Fragment, useRef, useState } from 'react';
 import {
-  AUTO,
-  REPORTS,
   REPORT_META,
-  wcagAlsoApplies,
+  autoRowsForEdition,
+  crossReferenceForEdition,
+  reportsForEdition,
   type ConformanceLevel,
+  type ReportEdition,
   type Finding,
   type ReportKind,
 } from '@vpat/shared';
@@ -17,18 +18,21 @@ import { api } from '../api/client.js';
 import { NavBar } from '../ui/components.js';
 
 export function ReviewScreen({
+  edition,
   findings,
   setFindings,
   reportId,
   onNext,
   onBack,
 }: {
+  edition: ReportEdition;
   findings: Finding[];
   setFindings: React.Dispatch<React.SetStateAction<Finding[]>>;
   reportId?: string;
   onNext: () => void;
   onBack: () => void;
 }) {
+  const reports = reportsForEdition(edition);
   const [activeRep, setActiveRep] = useState<ReportKind>('wcag');
   const [idx, setIdx] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
@@ -39,8 +43,8 @@ export function ReviewScreen({
 
   const repFindings = findings.map((ff, i) => ({ ff, i })).filter((o) => o.ff.report === activeRep);
   const repPos = repFindings.findIndex((o) => o.i === idx);
-  const rep = REPORTS.find((r) => r.id === activeRep)!;
-  const repAuto = AUTO.filter((a) => a.report === activeRep);
+  const rep = reports.find((r) => r.id === activeRep)!;
+  const repAuto = autoRowsForEdition(edition).filter((a) => a.report === activeRep);
 
   const repCount = (id: ReportKind) => {
     const items = findings.filter((x) => x.report === id);
@@ -77,7 +81,7 @@ export function ReviewScreen({
   };
 
   const isWcag = f.report === 'wcag';
-  const xref = isWcag && !f.obsolete ? wcagAlsoApplies(f.id) : null;
+  const xref = isWcag && !f.obsolete ? crossReferenceForEdition(edition, f.id) : null;
 
   return (
     <div className="screen">
@@ -88,7 +92,7 @@ export function ReviewScreen({
             Review the AI draft
           </h1>
           <p className="lead" style={{ fontSize: 15 }}>
-            One conformance response per criterion, recorded once and cross-referenced across all three standards.
+            One conformance response per criterion, reviewed by a human before export and cross-referenced where this edition requires it.
             Approve as-is or edit. Nothing ships until you say so.
           </p>
         </div>
@@ -109,7 +113,7 @@ export function ReviewScreen({
 
       {/* report tabs */}
       <div className="row wrap" style={{ gap: 8, marginBottom: 16 }} role="tablist" aria-label="Reports">
-        {REPORTS.map((r) => {
+        {reports.map((r) => {
           const c = repCount(r.id);
           const on = r.id === activeRep;
           return (
@@ -419,7 +423,7 @@ export function ReviewScreen({
             )}
 
             {/* cross-references — the INT edition signature */}
-            {xref && (
+            {xref && (xref.en.length > 0 || xref.s508.length > 0) && (
               <div
                 style={{ marginTop: 20, padding: '13px 15px', borderRadius: 'var(--radius-sm)', border: 'var(--hair)', background: 'var(--surface-2)' }}
               >
@@ -428,26 +432,30 @@ export function ReviewScreen({
                   <span className="micro muted">This response also documents conformance for</span>
                 </div>
                 <div className="col" style={{ gap: 8 }}>
-                  <div className="row wrap" style={{ gap: 6, alignItems: 'baseline' }}>
-                    <span className="faint" style={{ fontSize: 11.5, width: 92, flex: 'none' }}>
-                      EN 301 549
-                    </span>
-                    {xref.en.map((x) => (
-                      <span key={x} className="tag">
-                        {x}
+                  {xref.en.length > 0 && (
+                    <div className="row wrap" style={{ gap: 6, alignItems: 'baseline' }}>
+                      <span className="faint" style={{ fontSize: 11.5, width: 92, flex: 'none' }}>
+                        EN 301 549
                       </span>
-                    ))}
-                  </div>
-                  <div className="row wrap" style={{ gap: 6, alignItems: 'baseline' }}>
-                    <span className="faint" style={{ fontSize: 11.5, width: 92, flex: 'none' }}>
-                      Section 508
-                    </span>
-                    {xref.s508.map((x) => (
-                      <span key={x} className="tag">
-                        {x}
+                      {xref.en.map((x) => (
+                        <span key={x} className="tag">
+                          {x}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {xref.s508.length > 0 && (
+                    <div className="row wrap" style={{ gap: 6, alignItems: 'baseline' }}>
+                      <span className="faint" style={{ fontSize: 11.5, width: 92, flex: 'none' }}>
+                        Section 508
                       </span>
-                    ))}
-                  </div>
+                      {xref.s508.map((x) => (
+                        <span key={x} className="tag">
+                          {x}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             )}

@@ -27,7 +27,7 @@ import {
   type AdminSupportRequestDetail,
   type AdminSupportRequestSummary,
   type AuditEventRecord,
-  AUTO,
+  autoRowsForEdition,
   type AuthMode,
   type CrawlScope,
   type ConformanceLevel,
@@ -39,6 +39,7 @@ import {
   type SupportRequestStatus,
   type SupportMessageRecord,
   type ReportDetail,
+  type ReportEdition,
   type ReportStatus,
   type SequencedScanEvent,
   type ScanEvent,
@@ -122,12 +123,13 @@ export async function createReport(
   userId: string,
   domain: string,
   wcagTarget: WcagTarget,
+  edition: ReportEdition,
   scope: CrawlScope,
 ): Promise<string> {
   const row = await queryOne<{ id: string }>(
-    `INSERT INTO reports (org_id, created_by, domain, wcag_target, scope, status)
-     VALUES ($1, $2, $3, $4, $5, 'draft') RETURNING id`,
-    [env.demoOrgId, userId, domain, wcagTarget, scope],
+    `INSERT INTO reports (org_id, created_by, domain, wcag_target, edition, scope, status)
+     VALUES ($1, $2, $3, $4, $5, $6, 'draft') RETURNING id`,
+    [env.demoOrgId, userId, domain, wcagTarget, edition, scope],
   );
   return row!.id;
 }
@@ -821,7 +823,7 @@ export async function getReportDetail(id: string, userId: string): Promise<Repor
     report: rowToReport(reportRow),
     scan: scanRow ? rowToScan(scanRow) : null,
     findings,
-    auto: AUTO,
+    auto: autoRowsForEdition(reportRow.edition),
     pages,
   };
 }

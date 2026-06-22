@@ -10,8 +10,10 @@ import {
   type AdminReportSummary,
   type AdminSupportRequestDetail,
   type AdminSupportRequestSummary,
-  CRITERIA,
+  DEFAULT_EDITION,
+  EDITION_META,
   PAGES,
+  criteriaForEdition,
   emptyReportMeta,
   toFinding,
   type AuthMode,
@@ -19,6 +21,7 @@ import {
   type Finding,
   type PageInfo,
   type ReportDetail,
+  type ReportEdition,
   type ReportMeta,
   type ReportRecord,
   type SelfServePlan,
@@ -74,7 +77,7 @@ const LANDING_PILLARS = [
   {
     icon: Icons.scan,
     title: 'Scan the real product',
-    body: 'Crawl public or authenticated flows, capture evidence, and organize findings against the VPAT 2.5Rev International Edition structure.',
+    body: 'Crawl public or authenticated flows, capture evidence, and organize findings for the VPAT 2.5Rev edition your buyer or procurement process requires.',
   },
   {
     icon: Icons.sparkle,
@@ -194,7 +197,7 @@ function supportEmailHref(userLabel: string, account: AccountSummary | null, iss
 const FAQS = [
   {
     q: 'What does VPAT Builder actually produce?',
-    a: 'It helps your team create a draft Accessibility Conformance Report based on the VPAT 2.5Rev International Edition, including WCAG, Revised Section 508, and EN 301 549 coverage.',
+    a: 'It helps your team create a draft Accessibility Conformance Report based on VPAT 2.5Rev, with support for the WCAG, Revised Section 508, EN 301 549, and International editions.',
   },
   {
     q: 'Does this replace manual accessibility testing?',
@@ -278,10 +281,14 @@ const STARTUP_POINTS = [
 ] as const;
 
 function initFindings(): Finding[] {
-  return CRITERIA.map(toFinding);
+  return initFindingsForEdition(DEFAULT_EDITION);
 }
 
-export type DomainCommit = { domain: string; level: WcagTarget; scope: CrawlScope };
+function initFindingsForEdition(edition: ReportEdition): Finding[] {
+  return criteriaForEdition(edition).map(toFinding);
+}
+
+export type DomainCommit = { domain: string; level: WcagTarget; edition: ReportEdition; scope: CrawlScope };
 export type CredsCommit = { authMode: AuthMode; user: string; pass: string; loginUrl: string };
 
 export function App() {
@@ -1136,7 +1143,10 @@ function ReportsDashboard({
                       </h3>
                       <p className="landing-card-copy" style={{ marginBottom: 6 }}>{report.domain}</p>
                     </div>
-                    <span className="tag">{report.wcagTarget}</span>
+                    <div className="col" style={{ gap: 6, alignItems: 'flex-end' }}>
+                      <span className="tag">{EDITION_META[report.edition].shortLabel}</span>
+                      <span className="tag">{report.wcagTarget}</span>
+                    </div>
                   </div>
                   <div className="col" style={{ gap: 8, marginTop: 10, fontSize: 13.5 }}>
                     <span className="faint">Scope: {report.scope}</span>
@@ -1935,7 +1945,7 @@ function HomePage({ error, onLogin, onSignup }: { error: string | null; onLogin:
         <div className="landing-orb landing-orb-b" aria-hidden="true" />
         <div className="landing-grid">
           <div className="col" style={{ gap: 18, alignItems: 'flex-start' }}>
-            <span className="badge b-ok">VPAT 2.5Rev International Edition</span>
+            <span className="badge b-ok">VPAT 2.5Rev Editions</span>
             <div>
               <div className="eyebrow">Accessibility Reporting, Modernized</div>
               <h1 className="landing-title">AccessOps helps teams draft VPAT reports with evidence, speed, and review discipline.</h1>
@@ -1955,7 +1965,7 @@ function HomePage({ error, onLogin, onSignup }: { error: string | null; onLogin:
             </div>
             <div className="row wrap" style={{ gap: 8 }}>
               <span className="tag">Secure team workspace</span>
-              <span className="tag">WCAG + Section 508 + EN 301 549</span>
+              <span className="tag">WCAG, 508, EU, or International</span>
               <span className="tag">Human approval required</span>
             </div>
             {error && (
@@ -1996,7 +2006,7 @@ function HomePage({ error, onLogin, onSignup }: { error: string | null; onLogin:
             <div className="landing-metrics">
               <div>
                 <div className="landing-metric-num">3</div>
-                <div className="faint">standards aligned in one reporting flow</div>
+                <div className="faint">official VPAT edition options in one workflow</div>
               </div>
               <div>
                 <div className="landing-metric-num">1</div>
@@ -2125,7 +2135,7 @@ function PricingPage({ onLogin, onSignup }: { onLogin: () => void; onSignup: () 
             </h2>
             <div className="col" style={{ gap: 12, marginTop: 18 }}>
               {[
-                'Structured draft reports aligned to VPAT 2.5Rev International Edition',
+                'Structured draft reports aligned to VPAT 2.5Rev edition requirements',
                 'Criterion-by-criterion human approval workflow',
                 'Product metadata and evaluator attestation capture',
                 'Exportable draft reports for internal and buyer review',
@@ -2386,7 +2396,7 @@ function WizardApp({
 }) {
   const [step, setStep] = useState(0);
   const [reached, setReached] = useState(0);
-  const [form, setForm] = useState<WizardForm>({});
+  const [form, setForm] = useState<WizardForm>({ edition: DEFAULT_EDITION });
   const [findings, setFindings] = useState<Finding[]>(initFindings);
   const [meta, setMeta] = useState<ReportMeta>(() => emptyReportMeta());
   const [pages, setPages] = useState<PageInfo[]>([]);
@@ -2404,10 +2414,11 @@ function WizardApp({
     setForm({
       domain: report.domain,
       level: report.wcagTarget,
+      edition: report.edition,
       scope: report.scope,
       authMode: scan?.authMode ?? 'public',
     });
-    setFindings(detailFindings.length ? detailFindings : initFindings());
+    setFindings(detailFindings.length ? detailFindings : initFindingsForEdition(report.edition));
     setMeta({
       productName: report.productName ?? '',
       productVersion: report.productVersion ?? '',
@@ -2451,8 +2462,8 @@ function WizardApp({
       onBackToReports();
       return;
     }
-    setForm({});
-    setFindings(initFindings());
+    setForm({ edition: DEFAULT_EDITION });
+    setFindings(initFindingsForEdition(DEFAULT_EDITION));
     setMeta(emptyReportMeta());
     setPages([]);
     setReportId(undefined);
@@ -2469,11 +2480,12 @@ function WizardApp({
   const onDomainNext = async (v: DomainCommit) => {
     setFlowError(null);
     set(v);
+    setFindings(initFindingsForEdition(v.edition));
     setMeta((cur) => ({ ...emptyReportMeta(v.domain), ...cur, productName: cur.productName || emptyReportMeta(v.domain).productName, contactEmail: cur.contactEmail || emptyReportMeta(v.domain).contactEmail }));
     if (hasApi) {
       try {
         reportPromise.current = api
-          .createReport({ domain: v.domain, wcagTarget: v.level, scope: v.scope })
+          .createReport({ domain: v.domain, wcagTarget: v.level, edition: v.edition, scope: v.scope })
           .then((r) => {
             setReportId(r.reportId);
             return r.reportId;
@@ -2616,10 +2628,17 @@ function WizardApp({
           <ExaminingScreen state={form} scanId={scanId} onNext={() => go(3)} onBack={() => go(1)} />
         )}
         {key === 'generate' && (
-          <GeneratingScreen findings={findings} scanId={scanId} onNext={onGenerateNext} onBack={() => go(2)} />
+          <GeneratingScreen
+            edition={form.edition ?? DEFAULT_EDITION}
+            findings={findings}
+            scanId={scanId}
+            onNext={onGenerateNext}
+            onBack={() => go(2)}
+          />
         )}
         {key === 'review' && (
           <ReviewScreen
+            edition={form.edition ?? DEFAULT_EDITION}
             findings={findings}
             setFindings={setFindings}
             reportId={reportId}
@@ -2650,6 +2669,7 @@ function WizardApp({
             state={form}
             meta={meta}
             findings={findings}
+            edition={form.edition ?? DEFAULT_EDITION}
             reportId={reportId}
             onBack={() => go(5)}
             onRestart={restart}

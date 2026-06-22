@@ -1,7 +1,7 @@
 /* Step 4 — Draft: per-criterion drafting, chips flip spinner→colored check.
    With a scanId it streams real drafting progress; otherwise it simulates. */
 import { useEffect, useState } from 'react';
-import { GEN_PHASES, REPORTS, type ConformanceLevel, type Finding } from '@vpat/shared';
+import { GEN_PHASES, reportsForEdition, type ConformanceLevel, type Finding, type ReportEdition } from '@vpat/shared';
 import { Icons } from '../ui/icons.js';
 import { statusColor } from '../ui/status.js';
 import { NavBar, Spinner } from '../ui/components.js';
@@ -9,17 +9,20 @@ import { hasApi } from '../config.js';
 import { api } from '../api/client.js';
 
 export function GeneratingScreen({
+  edition,
   findings,
   scanId,
   onNext,
   onBack,
 }: {
+  edition: ReportEdition;
   findings: Finding[];
   scanId?: string;
   onNext: () => void;
   onBack: () => void;
 }) {
   const gen = GEN_PHASES;
+  const reports = reportsForEdition(edition);
   const total = findings.length;
   const [drafted, setDrafted] = useState(0);
   const [phase, setPhase] = useState(0);
@@ -83,7 +86,7 @@ export function GeneratingScreen({
       </h1>
       <p className="lead">
         Each criterion is matched to the captured evidence, assigned a conformance level with plain-language
-        remarks, and cross-referenced across all three standards — then scored for confidence. Everything is
+        remarks, and cross-referenced where the selected VPAT edition requires it — then scored for confidence. Everything is
         editable in the next step.
       </p>
 
@@ -98,7 +101,7 @@ export function GeneratingScreen({
           <span style={{ width: `${(Math.min(drafted, total) / total) * 100}%` }} />
         </div>
 
-        {REPORTS.map((rep) => {
+        {reports.map((rep) => {
           const items = findings.map((f, i) => ({ f, i })).filter((o) => o.f.report === rep.id);
           if (!items.length) return null;
           return (

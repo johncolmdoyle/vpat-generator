@@ -2,7 +2,7 @@
  *  failure (e.g. the unreachable *.example demo domains) it falls back to the baked
  *  mock dataset so the end-to-end flow always completes (BACKEND.md §1). */
 import type { Page } from 'playwright';
-import { CRITERIA, PAGES, SCAN_PHASES, type Evidence } from '@vpat/shared';
+import { PAGES, SCAN_PHASES, criteriaForEdition, type Evidence } from '@vpat/shared';
 import type { ScanJobMessage } from '@vpat/shared';
 import { readSecret } from '@vpat/backend';
 import type { Emitter } from './events.js';
@@ -257,7 +257,7 @@ async function realScan(job: ScanJobMessage, emit: Emitter): Promise<AnalysisRes
 async function mockScan(job: ScanJobMessage, emit: Emitter): Promise<AnalysisResult> {
   const pages = PAGES.filter((p) => job.authMode === 'auth' || !p.auth);
   const perCriterion = new Map<string, CriterionData>();
-  for (const c of CRITERIA) {
+  for (const c of criteriaForEdition(job.edition)) {
     perCriterion.set(c.id, { auto: c.auto, evidence: c.evidence });
   }
   // Pseudo-random but stable issue count per page url.

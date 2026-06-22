@@ -214,7 +214,7 @@ export function buildServer() {
   /* ---------- reports ---------- */
 
   app.post<{ Body: CreateReportRequest }>('/api/reports', async (req, reply) => {
-    const { domain, wcagTarget, scope } = req.body;
+    const { domain, wcagTarget, edition, scope } = req.body;
     if (!domain) return reply.code(400).send({ error: 'domain required' });
     const account = await requireActiveSubscription(req.currentUser!.userId, reply, req.currentUser!.permissions);
     if (!account) return;
@@ -223,7 +223,7 @@ export function buildServer() {
         .code(403)
         .send({ error: `plan limit reached: ${account.activeReportLimit} active reports on ${account.plan}` });
     }
-    const reportId = await store.createReport(req.currentUser!.userId, domain, wcagTarget ?? 'AA', scope ?? 'auto');
+    const reportId = await store.createReport(req.currentUser!.userId, domain, wcagTarget ?? 'AA', edition ?? 'INT', scope ?? 'auto');
     await store.recordAuditEvent({
       actorUserId: req.currentUser!.userId,
       actorEmail: req.currentUser!.email,
@@ -231,7 +231,7 @@ export function buildServer() {
       targetType: 'report',
       targetId: reportId,
       subject: `Created report for ${domain}`,
-      metadata: { domain, wcagTarget: wcagTarget ?? 'AA', scope: scope ?? 'auto' },
+      metadata: { domain, wcagTarget: wcagTarget ?? 'AA', edition: edition ?? 'INT', scope: scope ?? 'auto' },
     });
     return { reportId };
   });
@@ -287,6 +287,7 @@ export function buildServer() {
         scanId,
         reportId: reportRow.id,
         domain: reportRow.domain,
+        edition: reportRow.edition,
         scope: reportRow.scope,
         authMode,
         authSecretId,

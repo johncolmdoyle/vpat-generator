@@ -3,11 +3,13 @@
    it just confirms a generated filename. */
 import { useState } from 'react';
 import {
-  REPORTS,
+  EDITION_META,
+  reportsForEdition,
   type ConformanceLevel,
   type ExportFormat,
   type Finding,
   type ReportMeta,
+  type ReportEdition,
   type WizardForm,
 } from '@vpat/shared';
 import { Icons, type IconProps } from '../ui/icons.js';
@@ -35,6 +37,7 @@ export function DownloadScreen({
   state,
   meta,
   findings,
+  edition,
   reportId,
   onBack,
   onRestart,
@@ -43,11 +46,13 @@ export function DownloadScreen({
   state: WizardForm;
   meta: ReportMeta;
   findings: Finding[];
+  edition: ReportEdition;
   reportId?: string;
   onBack: () => void;
   onRestart: () => void;
   onExported?: () => void;
 }) {
+  const reports = reportsForEdition(edition);
   const counts = countsBy(findings);
   const applicable = findings.length - counts['Not Applicable'] - counts['Not Evaluated'];
   const score = Math.round(((counts['Supports'] + counts['Partially Supports'] * 0.5) / applicable) * 100);
@@ -101,7 +106,7 @@ export function DownloadScreen({
   ];
   const ext = (fmt: string) => (fmt === 'Word' ? 'docx' : fmt === 'PDF' ? 'pdf' : 'vpat');
   const mockName = (label: string) =>
-    `VPAT2.5Rev-INT-${domain.replace(/\..*/, '')}-${today.replace(/\s|,/g, '')}.${ext(label)}`;
+    `VPAT2.5Rev-${edition}-${domain.replace(/\..*/, '')}-${today.replace(/\s|,/g, '')}.${ext(label)}`;
 
   const onDownload = (label: string) => {
     setExportError(null);
@@ -136,8 +141,8 @@ export function DownloadScreen({
         Accessibility Conformance Report assembled
       </h1>
       <p className="lead">
-        All {findings.length} criteria reviewed and approved across the WCAG 2.2, Section 508 and EN 301 549
-        reports. Based on the VPAT® 2.5Rev International Edition.
+        All {findings.length} criteria reviewed and approved for the {EDITION_META[edition].fullLabel}. Based on the
+        VPAT® 2.5Rev {EDITION_META[edition].fullLabel}.
       </p>
 
       <div
@@ -195,7 +200,7 @@ export function DownloadScreen({
 
       {/* per-report breakdown */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 12, marginTop: 16 }}>
-        {REPORTS.map((r) => {
+        {reports.map((r) => {
           const items = findings.filter((f) => f.report === r.id);
           const c = countsBy(items);
           return (
@@ -232,7 +237,7 @@ export function DownloadScreen({
       {/* ACR header info */}
       <div className="card" style={{ marginTop: 16 }}>
         <div className="micro muted" style={{ marginBottom: 14 }}>
-          Accessibility Conformance Report — International Edition · VPAT® 2.5Rev
+          Accessibility Conformance Report — {EDITION_META[edition].fullLabel} · VPAT® 2.5Rev
         </div>
         <div style={{ display: 'grid', gap: 12 }}>
           {header.map(([k, v]) => (
@@ -258,32 +263,97 @@ export function DownloadScreen({
               </tr>
             </thead>
             <tbody>
-              {wcagRows.map((w) => (
-                <tr key={w.ver} style={{ borderTop: 'var(--hair)' }}>
-                  <td style={{ padding: '8px 10px' }}>WCAG {w.ver}</td>
-                  <td style={{ padding: '8px 10px' }}>
-                    <span className="row wrap" style={{ gap: 6 }}>
-                      <span className="row" style={{ gap: 5 }}>
-                        {yes(w.a)} <span className="faint" style={{ fontSize: 11.5 }}>A</span>
+              {edition === '508' && (
+                <>
+                  <tr style={{ borderTop: 'var(--hair)' }}>
+                    <td style={{ padding: '8px 10px' }}>WCAG 2.0</td>
+                    <td style={{ padding: '8px 10px' }}>
+                      <span className="row wrap" style={{ gap: 6 }}>
+                        <span className="row" style={{ gap: 5 }}>
+                          {yes(true)} <span className="faint" style={{ fontSize: 11.5 }}>A</span>
+                        </span>
+                        <span className="row" style={{ gap: 5 }}>
+                          {yes(levelRank >= 2)} <span className="faint" style={{ fontSize: 11.5 }}>AA</span>
+                        </span>
                       </span>
-                      <span className="row" style={{ gap: 5 }}>
-                        {yes(w.aa)} <span className="faint" style={{ fontSize: 11.5 }}>AA</span>
+                    </td>
+                  </tr>
+                  <tr style={{ borderTop: 'var(--hair)' }}>
+                    <td style={{ padding: '8px 10px' }}>Revised Section 508</td>
+                    <td style={{ padding: '8px 10px' }}>{yes(true)}</td>
+                  </tr>
+                </>
+              )}
+              {edition === 'EU' && (
+                <>
+                  <tr style={{ borderTop: 'var(--hair)' }}>
+                    <td style={{ padding: '8px 10px' }}>WCAG 2.1</td>
+                    <td style={{ padding: '8px 10px' }}>
+                      <span className="row wrap" style={{ gap: 6 }}>
+                        <span className="row" style={{ gap: 5 }}>
+                          {yes(true)} <span className="faint" style={{ fontSize: 11.5 }}>A</span>
+                        </span>
+                        <span className="row" style={{ gap: 5 }}>
+                          {yes(levelRank >= 2)} <span className="faint" style={{ fontSize: 11.5 }}>AA</span>
+                        </span>
                       </span>
-                      <span className="row" style={{ gap: 5 }}>
-                        {yes(w.aaa)} <span className="faint" style={{ fontSize: 11.5 }}>AAA</span>
+                    </td>
+                  </tr>
+                  <tr style={{ borderTop: 'var(--hair)' }}>
+                    <td style={{ padding: '8px 10px' }}>EN 301 549 (V3.1.1 &amp; V3.2.1)</td>
+                    <td style={{ padding: '8px 10px' }}>{yes(true)}</td>
+                  </tr>
+                </>
+              )}
+              {edition === 'INT' && (
+                <>
+                  {wcagRows.map((w) => (
+                    <tr key={w.ver} style={{ borderTop: 'var(--hair)' }}>
+                      <td style={{ padding: '8px 10px' }}>WCAG {w.ver}</td>
+                      <td style={{ padding: '8px 10px' }}>
+                        <span className="row wrap" style={{ gap: 6 }}>
+                          <span className="row" style={{ gap: 5 }}>
+                            {yes(w.a)} <span className="faint" style={{ fontSize: 11.5 }}>A</span>
+                          </span>
+                          <span className="row" style={{ gap: 5 }}>
+                            {yes(w.aa)} <span className="faint" style={{ fontSize: 11.5 }}>AA</span>
+                          </span>
+                          <span className="row" style={{ gap: 5 }}>
+                            {yes(w.aaa)} <span className="faint" style={{ fontSize: 11.5 }}>AAA</span>
+                          </span>
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                  <tr style={{ borderTop: 'var(--hair)' }}>
+                    <td style={{ padding: '8px 10px' }}>Revised Section 508</td>
+                    <td style={{ padding: '8px 10px' }}>{yes(true)}</td>
+                  </tr>
+                  <tr style={{ borderTop: 'var(--hair)' }}>
+                    <td style={{ padding: '8px 10px' }}>EN 301 549 (V3.1.1 &amp; V3.2.1)</td>
+                    <td style={{ padding: '8px 10px' }}>{yes(true)}</td>
+                  </tr>
+                </>
+              )}
+              {edition === 'WCAG' &&
+                wcagRows.map((w) => (
+                  <tr key={w.ver} style={{ borderTop: 'var(--hair)' }}>
+                    <td style={{ padding: '8px 10px' }}>WCAG {w.ver}</td>
+                    <td style={{ padding: '8px 10px' }}>
+                      <span className="row wrap" style={{ gap: 6 }}>
+                        <span className="row" style={{ gap: 5 }}>
+                          {yes(w.a)} <span className="faint" style={{ fontSize: 11.5 }}>A</span>
+                        </span>
+                        <span className="row" style={{ gap: 5 }}>
+                          {yes(w.aa)} <span className="faint" style={{ fontSize: 11.5 }}>AA</span>
+                        </span>
+                        <span className="row" style={{ gap: 5 }}>
+                          {yes(w.aaa)} <span className="faint" style={{ fontSize: 11.5 }}>AAA</span>
+                        </span>
                       </span>
-                    </span>
-                  </td>
-                </tr>
-              ))}
-              <tr style={{ borderTop: 'var(--hair)' }}>
-                <td style={{ padding: '8px 10px' }}>Revised Section 508</td>
-                <td style={{ padding: '8px 10px' }}>{yes(true)}</td>
-              </tr>
-              <tr style={{ borderTop: 'var(--hair)' }}>
-                <td style={{ padding: '8px 10px' }}>EN 301 549 (V3.1.1 &amp; V3.2.1)</td>
-                <td style={{ padding: '8px 10px' }}>{yes(true)}</td>
-              </tr>
+                    </td>
+                  </tr>
+                ))}
             </tbody>
           </table>
         </div>
@@ -295,7 +365,7 @@ export function DownloadScreen({
           <div>
             <div style={{ fontWeight: 600, fontSize: 15 }}>Download the report</div>
             <div className="faint" style={{ fontSize: 12.5, marginTop: 3 }}>
-              VPAT® 2.5Rev International Edition · 3 reports, conformance tables, remarks &amp; evidence appendix.
+              VPAT® 2.5Rev {EDITION_META[edition].fullLabel} · conformance tables, remarks &amp; evidence appendix.
             </div>
           </div>
           <div className="row wrap" style={{ gap: 9 }}>

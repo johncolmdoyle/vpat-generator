@@ -1,4 +1,4 @@
-import type { CrossReference, Criterion, Finding, ReportKind } from './types.js';
+import type { CrossReference, Criterion, Finding, ReportEdition, ReportKind } from './types.js';
 
 /**
  * Short/long labels for the INT edition's three sub-reports.
@@ -8,6 +8,21 @@ export const REPORT_META: Record<ReportKind, { short: string; full: string }> = 
   '508': { short: 'Section 508', full: 'Revised Section 508 Report' },
   en: { short: 'EN 301 549', full: 'EN 301 549 Report' },
 };
+
+export function crossReferenceForEdition(edition: ReportEdition, id: string): CrossReference {
+  const full = wcagAlsoApplies(id);
+  switch (edition) {
+    case 'WCAG':
+      return { en: [], s508: [] };
+    case '508':
+      return { en: [], s508: full.s508 };
+    case 'EU':
+      return { en: full.en, s508: [] };
+    case 'INT':
+    default:
+      return full;
+  }
+}
 
 export const PRINCIPLES = ['Perceivable', 'Operable', 'Understandable', 'Robust'] as const;
 

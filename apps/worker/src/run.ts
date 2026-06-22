@@ -1,6 +1,6 @@
 /** Runs one scan job end-to-end: analyze → draft → persist, emitting progress. */
-import { query, destroySecret, criteriaSeed } from '@vpat/backend';
-import type { ScanJobMessage } from '@vpat/shared';
+import { query, destroySecret } from '@vpat/backend';
+import { criteriaForEdition, type ScanJobMessage } from '@vpat/shared';
 import { Emitter } from './events.js';
 import { analyze } from './scan.js';
 import { draftCriterion } from './draft.js';
@@ -26,7 +26,7 @@ export async function runJob(job: ScanJobMessage): Promise<void> {
 
     // ---- draft ----
     await emit.state('drafting');
-    const criteria = criteriaSeed();
+    const criteria = criteriaForEdition(job.edition);
     const total = criteria.length;
     let drafted = 0;
     for (const c of criteria) {

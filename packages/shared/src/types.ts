@@ -1,5 +1,5 @@
 /**
- * Domain types for the VPAT 2.5Rev International Edition ACR.
+ * Domain types for the VPAT 2.5Rev ACR editions.
  *
  * One ACR bundles three reports — WCAG 2.x, Revised Section 508, EN 301 549 — and a
  * single WCAG response is cross-referenced into the EN/508 rows it satisfies. These
@@ -15,6 +15,9 @@ export type ConformanceLevel =
   | 'Does Not Support'
   | 'Not Applicable'
   | 'Not Evaluated'; // Used only for WCAG Level AAA.
+
+/** Which of the VPAT 2.5Rev editions the report uses. */
+export type ReportEdition = 'WCAG' | '508' | 'EU' | 'INT';
 
 /** Which of the three sub-reports a row belongs to. */
 export type ReportKind = 'wcag' | '508' | 'en';
@@ -103,7 +106,7 @@ export interface Term {
   def: string;
 }
 
-/** An applicable standard / guideline covered by the INT edition. */
+/** An applicable standard / guideline covered by one or more editions. */
 export interface Standard {
   id: string;
   group: string;
@@ -143,6 +146,7 @@ export interface CrossReference {
 export interface WizardForm {
   domain?: string;
   level?: WcagTarget;
+  edition?: ReportEdition;
   scope?: CrawlScope;
   authMode?: AuthMode;
   user?: string;
