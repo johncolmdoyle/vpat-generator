@@ -54,6 +54,28 @@ function hasAnyPermission(permissions: string[], allowed: string[]) {
   return permissions.includes('admin:all') || allowed.some((permission) => permissions.includes(permission));
 }
 
+function applyAdminEntitlements(account: import('@vpat/shared').AccountSummary, permissions: string[]) {
+  const isAdmin = hasAnyPermission(permissions, ADMIN_PERMISSIONS);
+  if (!isAdmin) {
+    return {
+      ...account,
+      permissions,
+      isAdmin: false,
+    };
+  }
+  return {
+    ...account,
+    plan: 'enterprise' as const,
+    activeReportLimit: null,
+    canUseAuthenticatedScans: true,
+    canManageBilling: false,
+    hasActiveSubscription: true,
+    subscriptionStatus: 'admin_override',
+    permissions,
+    isAdmin: true,
+  };
+}
+
 export function buildServer() {
   const app = Fastify({ logger: true });
   app.register(cors, { origin: true });
@@ -78,19 +100,17 @@ export function buildServer() {
   app.get('/api/account', async (req, reply) => {
     const account = await store.getAccountSummary(req.currentUser!.userId);
     if (!account) return reply.code(404).send({ error: 'account not found' });
-    return {
-      ...account,
-      permissions: req.currentUser!.permissions,
-      isAdmin: hasAnyPermission(req.currentUser!.permissions, ADMIN_PERMISSIONS),
-    };
+    return applyAdminEntitlements(account, req.currentUser!.permissions);
   });
 
-  async function requireActiveSubscription(userId: string, reply: FastifyReply) {
+  async function requireActiveSubscription(userId: string, reply: FastifyReply, permissions: string[] = []) {
     const account = await store.getAccountSummary(userId);
     if (!account) {
       await reply.code(404).send({ error: 'account not found' });
       return null;
     }
+    const effectiveAccount = applyAdminEntitlements(account, permissions);
+    if (effectiveAccount.isAdmin) return effectiveAccount;
     if (!account.hasActiveSubscription) {
       const message =
         account.subscriptionStatus === 'past_due' || account.subscriptionStatus === 'unpaid'
@@ -99,7 +119,7 @@ export function buildServer() {
       await reply.code(403).send({ error: message });
       return null;
     }
-    return account;
+    return effectiveAccount;
   }
 
   async function requireAdmin(req: FastifyRequest, reply: FastifyReply, allowed = ADMIN_PERMISSIONS) {
@@ -128,11 +148,7 @@ export function buildServer() {
       if (!req.query.session_id) return reply.code(400).send({ error: 'session_id required' });
       const account = await confirmCheckoutSession(req.currentUser!.userId, req.query.session_id);
       return {
-        account: {
-          ...account,
-          permissions: req.currentUser!.permissions,
-          isAdmin: hasAnyPermission(req.currentUser!.permissions, ADMIN_PERMISSIONS),
-        },
+        account: applyAdminEntitlements(account, req.currentUser!.permissions),
       };
     },
   );
@@ -199,7 +215,7 @@ export function buildServer() {
   app.post<{ Body: CreateReportRequest }>('/api/reports', async (req, reply) => {
     const { domain, wcagTarget, scope } = req.body;
     if (!domain) return reply.code(400).send({ error: 'domain required' });
-    const account = await requireActiveSubscription(req.currentUser!.userId, reply);
+    const account = await requireActiveSubscription(req.currentUser!.userId, reply, req.currentUser!.permissions);
     if (!account) return;
     if (account.activeReportLimit !== null && account.activeReports >= account.activeReportLimit) {
       return reply
@@ -238,7 +254,7 @@ export function buildServer() {
 
       const body = req.body ?? ({ authMode: 'public' } as StartScanRequest);
       const authMode = body.authMode === 'auth' ? 'auth' : 'public';
-      const account = await requireActiveSubscription(req.currentUser!.userId, reply);
+      const account = await requireActiveSubscription(req.currentUser!.userId, reply, req.currentUser!.permissions);
       if (!account) return;
       if (authMode === 'auth' && !account.canUseAuthenticatedScans) {
         return reply.code(403).send({ error: `authenticated scans require growth or enterprise plan` });
@@ -285,7 +301,7 @@ export function buildServer() {
     async (req, reply) => {
       const reportRow = await store.getReportRow(req.params.id, req.currentUser!.userId);
       if (!reportRow) return reply.code(404).send({ error: 'report not found' });
-      if (!(await requireActiveSubscription(req.currentUser!.userId, reply))) return;
+      if (!(await requireActiveSubscription(req.currentUser!.userId, reply, req.currentUser!.permissions))) return;
       await store.updateReport(req.params.id, req.body ?? {});
       await store.recordAuditEvent({
         actorUserId: req.currentUser!.userId,
@@ -302,7 +318,7 @@ export function buildServer() {
   );
 
   app.post<{ Params: { id: string } }>('/api/reports/:id/approve-all', async (req, reply) => {
-    if (!(await requireActiveSubscription(req.currentUser!.userId, reply))) return;
+    if (!(await requireActiveSubscription(req.currentUser!.userId, reply, req.currentUser!.permissions))) return;
     await store.approveAll(req.currentUser!.userId, req.params.id);
     await store.recordAuditEvent({
       actorUserId: req.currentUser!.userId,
@@ -320,7 +336,7 @@ export function buildServer() {
     async (req, reply) => {
       const detail = await store.getReportDetail(req.params.id, req.currentUser!.userId);
       if (!detail) return reply.code(404).send({ error: 'report not found' });
-      if (!(await requireActiveSubscription(req.currentUser!.userId, reply))) return;
+      if (!(await requireActiveSubscription(req.currentUser!.userId, reply, req.currentUser!.permissions))) return;
       const format = req.body?.format ?? 'pdf';
 
       const artifact = await buildExport(format, detail);
@@ -392,7 +408,7 @@ export function buildServer() {
   app.patch<{ Params: { id: string }; Body: UpdateFindingRequest }>(
     '/api/findings/:id',
     async (req, reply) => {
-      if (!(await requireActiveSubscription(req.currentUser!.userId, reply))) return;
+      if (!(await requireActiveSubscription(req.currentUser!.userId, reply, req.currentUser!.permissions))) return;
       const updated = await store.updateFinding(req.currentUser!.userId, req.params.id, req.body ?? {});
       if (!updated) return reply.code(404).send({ error: 'not found' });
       await store.recordAuditEvent({
@@ -409,7 +425,7 @@ export function buildServer() {
   );
 
   app.post<{ Params: { id: string } }>('/api/findings/:id/approve', async (req, reply) => {
-    if (!(await requireActiveSubscription(req.currentUser!.userId, reply))) return;
+    if (!(await requireActiveSubscription(req.currentUser!.userId, reply, req.currentUser!.permissions))) return;
     await store.approveFinding(req.currentUser!.userId, req.params.id);
     await store.recordAuditEvent({
       actorUserId: req.currentUser!.userId,
