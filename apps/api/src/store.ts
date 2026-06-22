@@ -33,6 +33,7 @@ import {
   type ConformanceLevel,
   type Evidence,
   type Finding,
+  type UpdateAdminReportRequest,
   type SupportRequestCategory,
   type SupportRequestDetail,
   type SupportRequestRecord,
@@ -113,7 +114,7 @@ export async function getAccountSummary(userId: string): Promise<AccountSummary 
 
 export async function countActiveReports(userId: string): Promise<number> {
   const row = await queryOne<{ count: string }>(
-    `SELECT COUNT(*)::text AS count FROM reports WHERE created_by = $1 AND status <> 'final'`,
+    `SELECT COUNT(*)::text AS count FROM reports WHERE created_by = $1 AND status <> 'final' AND is_archived = false`,
     [userId],
   );
   return Number(row?.count ?? '0');
@@ -161,7 +162,7 @@ export async function recordAuditEvent(input: {
 }
 
 export function getReportRow(id: string, userId: string): Promise<ReportRow | null> {
-  return queryOne<ReportRow>(`SELECT * FROM reports WHERE id = $1 AND created_by = $2`, [id, userId]);
+  return queryOne<ReportRow>(`SELECT * FROM reports WHERE id = $1 AND created_by = $2 AND is_archived = false`, [id, userId]);
 }
 
 export function getScanRow(id: string, userId: string): Promise<ScanRow | null> {
@@ -277,7 +278,7 @@ export async function applyStripeSubscription(
 }
 
 export function listReportRows(userId: string): Promise<ReportRow[]> {
-  return query<ReportRow>(`SELECT * FROM reports WHERE created_by = $1 ORDER BY created_at DESC`, [userId]);
+  return query<ReportRow>(`SELECT * FROM reports WHERE created_by = $1 AND is_archived = false ORDER BY created_at DESC`, [userId]);
 }
 
 async function loadFindings(reportId: string): Promise<Finding[]> {
@@ -420,7 +421,7 @@ export async function getAdminOverview(): Promise<AdminOverview> {
        COUNT(*)::text AS total_clients,
        COUNT(*) FILTER (WHERE subscription_status IN ('active','trialing'))::text AS active_subscriptions,
        COUNT(*) FILTER (WHERE subscription_status IN ('past_due','unpaid'))::text AS past_due_subscriptions,
-       (SELECT COUNT(*)::text FROM reports WHERE status <> 'final') AS active_reports,
+       (SELECT COUNT(*)::text FROM reports WHERE status <> 'final' AND is_archived = false) AS active_reports,
        (SELECT COUNT(*)::text FROM support_requests WHERE status IN ('open','pending')) AS open_support_requests
      FROM users`,
   );
@@ -460,7 +461,7 @@ export async function listAdminClients(): Promise<AdminClientSummary[]> {
        u.subscription_status,
        u.stripe_customer_id,
        u.stripe_subscription_id,
-       COUNT(DISTINCT r.id)::text AS report_count,
+       COUNT(DISTINCT r.id) FILTER (WHERE r.is_archived = false)::text AS report_count,
        COUNT(DISTINCT sr.id) FILTER (WHERE sr.status IN ('open','pending'))::text AS open_support_requests,
        u.internal_notes,
        u.is_archived,
@@ -509,7 +510,7 @@ export async function getAdminClientDetail(clientId: string): Promise<AdminClien
        u.subscription_status,
        u.stripe_customer_id,
        u.stripe_subscription_id,
-       COUNT(DISTINCT r.id)::text AS report_count,
+       COUNT(DISTINCT r.id) FILTER (WHERE r.is_archived = false)::text AS report_count,
        COUNT(DISTINCT sr.id) FILTER (WHERE sr.status IN ('open','pending'))::text AS open_support_requests,
        u.internal_notes,
        u.is_archived,
@@ -679,6 +680,65 @@ export async function listAdminReports(): Promise<AdminReportSummary[]> {
   }));
 }
 
+export async function updateAdminReport(reportId: string, patch: UpdateAdminReportRequest): Promise<AdminReportSummary | null> {
+  const sets: string[] = [];
+  const params: unknown[] = [reportId];
+  if (patch.isArchived !== undefined) {
+    params.push(patch.isArchived);
+    sets.push(`is_archived = $${params.length}`);
+    params.push(patch.isArchived ? new Date().toISOString() : null);
+    sets.push(`archived_at = $${params.length}`);
+  }
+  if (!sets.length) return getAdminReport(reportId);
+  await query(`UPDATE reports SET ${sets.join(', ')} WHERE id = $1`, params);
+  return getAdminReport(reportId);
+}
+
+export async function deleteAdminReport(reportId: string): Promise<boolean> {
+  const row = await queryOne<{ id: string }>(`DELETE FROM reports WHERE id = $1 RETURNING id`, [reportId]);
+  return Boolean(row?.id);
+}
+
+export async function getAdminReport(reportId: string): Promise<AdminReportSummary | null> {
+  const row = await queryOne<
+    ReportRow & {
+      client_id: string | null;
+      client_email: string | null;
+      latest_scan_state: ScanRow['state'] | null;
+      latest_scan_started_at: Date | null;
+      latest_scan_finished_at: Date | null;
+    }
+  >(
+    `SELECT
+       r.*,
+       u.id AS client_id,
+       u.email AS client_email,
+       s.state AS latest_scan_state,
+       s.started_at AS latest_scan_started_at,
+       s.finished_at AS latest_scan_finished_at
+     FROM reports r
+     LEFT JOIN users u ON u.id = r.created_by
+     LEFT JOIN LATERAL (
+       SELECT state, started_at, finished_at
+       FROM scans
+       WHERE report_id = r.id
+       ORDER BY started_at DESC NULLS LAST, id DESC
+       LIMIT 1
+     ) s ON true
+     WHERE r.id = $1`,
+    [reportId],
+  );
+  if (!row) return null;
+  return {
+    report: rowToReport(row),
+    clientId: row.client_id,
+    clientEmail: row.client_email,
+    latestScanState: row.latest_scan_state,
+    latestScanStartedAt: row.latest_scan_started_at ? row.latest_scan_started_at.toISOString() : null,
+    latestScanFinishedAt: row.latest_scan_finished_at ? row.latest_scan_finished_at.toISOString() : null,
+  };
+}
+
 export async function listAdminSupportRequests(): Promise<AdminSupportRequestSummary[]> {
   const rows = await query<{
     request_id: string;
@@ -762,7 +822,7 @@ export async function getAdminSupportRequestDetail(requestId: string): Promise<A
        u.is_archived,
        u.archived_at,
        u.created_at AS user_created_at,
-       (SELECT COUNT(*)::text FROM reports WHERE created_by = u.id) AS report_count,
+       (SELECT COUNT(*)::text FROM reports WHERE created_by = u.id AND is_archived = false) AS report_count,
        (SELECT COUNT(*)::text FROM support_requests WHERE user_id = u.id AND status IN ('open','pending')) AS open_support_requests,
        GREATEST(
          u.created_at,

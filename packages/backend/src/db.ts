@@ -44,6 +44,8 @@ export async function queryOne<T extends pg.QueryResultRow = pg.QueryResultRow>(
 export async function migrate(): Promise<void> {
   await pool.query(`
     ALTER TABLE reports ADD COLUMN IF NOT EXISTS vendor_name       TEXT;
+    ALTER TABLE reports ADD COLUMN IF NOT EXISTS is_archived       BOOLEAN NOT NULL DEFAULT false;
+    ALTER TABLE reports ADD COLUMN IF NOT EXISTS archived_at       TIMESTAMPTZ;
     ALTER TABLE reports ADD COLUMN IF NOT EXISTS assistive_tech    JSONB NOT NULL DEFAULT '[]';
     ALTER TABLE reports ADD COLUMN IF NOT EXISTS test_environments JSONB NOT NULL DEFAULT '[]';
     ALTER TABLE reports ADD COLUMN IF NOT EXISTS evaluator_name    TEXT;

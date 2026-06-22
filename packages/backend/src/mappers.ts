@@ -24,6 +24,8 @@ export interface ReportRow {
   edition: ReportEdition;
   scope: 'auto' | 'single' | 'sitemap';
   status: ReportRecord['status'];
+  is_archived: boolean;
+  archived_at: Date | null;
   product_name: string | null;
   product_version: string | null;
   vendor_name: string | null;
@@ -127,6 +129,8 @@ export function rowToReport(r: ReportRow): ReportRecord {
     edition: r.edition ?? DEFAULT_EDITION,
     scope: r.scope,
     status: r.status,
+    isArchived: r.is_archived,
+    archivedAt: r.archived_at ? r.archived_at.toISOString() : null,
     productName: r.product_name,
     productVersion: r.product_version,
     vendorName: r.vendor_name,

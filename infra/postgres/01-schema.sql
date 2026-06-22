@@ -38,6 +38,8 @@ CREATE TABLE reports (
   edition             TEXT NOT NULL DEFAULT 'INT',
   scope               TEXT NOT NULL DEFAULT 'auto' CHECK (scope IN ('auto','single','sitemap')),
   status              TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','scanning','review','final')),
+  is_archived         BOOLEAN NOT NULL DEFAULT false,
+  archived_at         TIMESTAMPTZ,
   vendor_name         TEXT,
   contact_email       TEXT,
   product_description TEXT,

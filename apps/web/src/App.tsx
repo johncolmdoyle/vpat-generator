@@ -336,6 +336,7 @@ function AuthenticatedApp() {
   const [adminSupportLoading, setAdminSupportLoading] = useState(false);
   const [adminSupportSubmitting, setAdminSupportSubmitting] = useState(false);
   const [adminClientSaving, setAdminClientSaving] = useState(false);
+  const [adminReportBusyId, setAdminReportBusyId] = useState<string | null>(null);
   const [billingNotice, setBillingNotice] = useState<{ tone: 'ok' | 'warn' | 'bad'; text: string } | null>(null);
   const [activeDetail, setActiveDetail] = useState<ReportDetail | null>(null);
   const [activeView, setActiveView] = useState<'dashboard' | 'wizard'>('dashboard');
@@ -478,6 +479,54 @@ function AuthenticatedApp() {
       setAdminError(e instanceof Error ? e.message : 'Could not load support ticket');
     } finally {
       setAdminSupportLoading(false);
+    }
+  };
+
+  const updateAdminReport = async (reportId: string, patch: { isArchived?: boolean }) => {
+    setAdminReportBusyId(reportId);
+    setAdminError(null);
+    try {
+      const updated = await api.updateAdminReport(reportId, patch);
+      setAdminReports((current) => current.map((item) => (item.report.id === reportId ? updated : item)));
+      setActiveAdminClient((current) =>
+        current
+          ? {
+              ...current,
+              reports: current.reports.map((item) => (item.report.id === reportId ? updated : item)),
+            }
+          : current,
+      );
+      await refreshAdminData();
+    } catch (e) {
+      console.error('updateAdminReport failed', e);
+      setAdminError(e instanceof Error ? e.message : 'Could not update report');
+      throw e;
+    } finally {
+      setAdminReportBusyId(null);
+    }
+  };
+
+  const deleteAdminReport = async (reportId: string) => {
+    setAdminReportBusyId(reportId);
+    setAdminError(null);
+    try {
+      await api.deleteAdminReport(reportId);
+      setAdminReports((current) => current.filter((item) => item.report.id !== reportId));
+      setActiveAdminClient((current) =>
+        current
+          ? {
+              ...current,
+              reports: current.reports.filter((item) => item.report.id !== reportId),
+            }
+          : current,
+      );
+      await refreshAdminData();
+    } catch (e) {
+      console.error('deleteAdminReport failed', e);
+      setAdminError(e instanceof Error ? e.message : 'Could not delete report');
+      throw e;
+    } finally {
+      setAdminReportBusyId(null);
     }
   };
 
@@ -816,6 +865,9 @@ function AuthenticatedApp() {
       onCloseAdminSupportRequest={() => setActiveAdminSupportRequest(null)}
       onSubmitAdminSupportMessage={(requestId, body) => void submitAdminSupportMessage(requestId, body)}
       onUpdateAdminSupportStatus={(requestId, status) => void updateAdminSupportStatus(requestId, status)}
+      onUpdateAdminReport={(reportId, patch) => void updateAdminReport(reportId, patch)}
+      onDeleteAdminReport={(reportId) => void deleteAdminReport(reportId)}
+      adminReportBusyId={adminReportBusyId}
       onSignout={signout}
     />
   ) : (
@@ -941,6 +993,9 @@ function ReportsDashboard({
   onCloseAdminSupportRequest,
   onSubmitAdminSupportMessage,
   onUpdateAdminSupportStatus,
+  onUpdateAdminReport,
+  onDeleteAdminReport,
+  adminReportBusyId,
   onSignout,
 }: {
   account: AccountSummary | null;
@@ -989,6 +1044,9 @@ function ReportsDashboard({
   onCloseAdminSupportRequest: () => void;
   onSubmitAdminSupportMessage: (requestId: string, body: string) => void;
   onUpdateAdminSupportStatus: (requestId: string, status: SupportRequestStatus) => void;
+  onUpdateAdminReport: (reportId: string, patch: { isArchived?: boolean }) => void;
+  onDeleteAdminReport: (reportId: string) => void;
+  adminReportBusyId: string | null;
   onSignout: () => void;
 }) {
   const accountIssue = subscriptionIssueMessage(account);
@@ -1439,6 +1497,9 @@ function ReportsDashboard({
             onCloseSupportRequest={onCloseAdminSupportRequest}
             onSubmitSupportMessage={onSubmitAdminSupportMessage}
             onUpdateSupportStatus={onUpdateAdminSupportStatus}
+            onUpdateAdminReport={onUpdateAdminReport}
+            onDeleteAdminReport={onDeleteAdminReport}
+            adminReportBusyId={adminReportBusyId}
           />
         )}
       </main>
@@ -1467,6 +1528,9 @@ function AdminConsole({
   onCloseSupportRequest,
   onSubmitSupportMessage,
   onUpdateSupportStatus,
+  onUpdateAdminReport,
+  onDeleteAdminReport,
+  adminReportBusyId,
 }: {
   overview: AdminOverview | null;
   clients: AdminClientSummary[];
@@ -1491,6 +1555,9 @@ function AdminConsole({
   onCloseSupportRequest: () => void;
   onSubmitSupportMessage: (requestId: string, body: string) => void;
   onUpdateSupportStatus: (requestId: string, status: SupportRequestStatus) => void;
+  onUpdateAdminReport: (reportId: string, patch: { isArchived?: boolean }) => void;
+  onDeleteAdminReport: (reportId: string) => void;
+  adminReportBusyId: string | null;
 }) {
   const [adminReply, setAdminReply] = useState('');
   const [clientBillingEmail, setClientBillingEmail] = useState('');
@@ -1517,6 +1584,9 @@ function AdminConsole({
       internalNotes: clientInternalNotes.trim() || null,
     });
   };
+
+  const archiveReportLabel = (item: AdminReportSummary) => (item.report.isArchived ? 'Restore report' : 'Archive report');
+  const archiveReportTone = (item: AdminReportSummary) => (item.report.isArchived ? 'btn-ghost' : 'btn-danger');
 
   return (
     <section className="landing-section" id="admin-console" aria-labelledby="admin-console-title">
@@ -1586,6 +1656,47 @@ function AdminConsole({
                   {client.hasActiveSubscription ? 'Active subscription' : client.subscriptionStatus ?? 'No subscription'} · {client.reportCount} reports · {client.openSupportRequests} open tickets
                 </div>
               </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="eyebrow">Reports</div>
+          <div className="col" style={{ gap: 10, marginTop: 16 }}>
+            {reports.map((item) => (
+              <div key={item.report.id} className="admin-subrow">
+                <div className="row between wrap" style={{ gap: 10 }}>
+                  <strong>{item.report.productName || item.report.domain}</strong>
+                  <div className="row wrap" style={{ gap: 8 }}>
+                    {item.report.isArchived && <span className="tag">archived</span>}
+                    <span className="tag">{item.report.status}</span>
+                  </div>
+                </div>
+                <span className="faint">
+                  {item.clientEmail ?? 'Unassigned'} · {item.report.domain} · scan {item.latestScanState ?? 'not started'}
+                </span>
+                <div className="row wrap" style={{ gap: 8, marginTop: 10 }}>
+                  <button
+                    className={`btn ${archiveReportTone(item)} btn-sm`}
+                    type="button"
+                    disabled={adminReportBusyId === item.report.id}
+                    onClick={() => onUpdateAdminReport(item.report.id, { isArchived: !item.report.isArchived })}
+                  >
+                    {adminReportBusyId === item.report.id ? 'Saving…' : archiveReportLabel(item)}
+                  </button>
+                  <button
+                    className="btn btn-danger btn-sm"
+                    type="button"
+                    disabled={adminReportBusyId === item.report.id}
+                    onClick={() => {
+                      if (!window.confirm(`Delete report "${item.report.productName || item.report.domain}" permanently? This removes scans, findings, and exports.`)) return;
+                      onDeleteAdminReport(item.report.id);
+                    }}
+                  >
+                    {adminReportBusyId === item.report.id ? 'Deleting…' : 'Delete report'}
+                  </button>
+                </div>
+              </div>
             ))}
           </div>
         </div>
@@ -1699,7 +1810,33 @@ function AdminConsole({
                   activeClient.reports.map((item) => (
                     <div key={item.report.id} className="admin-subrow">
                       <strong>{item.report.productName || item.report.domain}</strong>
-                      <span className="faint">{item.report.status} · scan {item.latestScanState ?? 'not started'} · {item.report.domain}</span>
+                      <span className="faint">
+                        {item.report.status}
+                        {item.report.isArchived ? ' · archived' : ''}
+                        {' · '}
+                        scan {item.latestScanState ?? 'not started'} · {item.report.domain}
+                      </span>
+                      <div className="row wrap" style={{ gap: 8, marginTop: 10 }}>
+                        <button
+                          className={`btn ${archiveReportTone(item)} btn-sm`}
+                          type="button"
+                          disabled={adminReportBusyId === item.report.id}
+                          onClick={() => onUpdateAdminReport(item.report.id, { isArchived: !item.report.isArchived })}
+                        >
+                          {adminReportBusyId === item.report.id ? 'Saving…' : archiveReportLabel(item)}
+                        </button>
+                        <button
+                          className="btn btn-danger btn-sm"
+                          type="button"
+                          disabled={adminReportBusyId === item.report.id}
+                          onClick={() => {
+                            if (!window.confirm(`Delete report "${item.report.productName || item.report.domain}" permanently? This removes scans, findings, and exports.`)) return;
+                            onDeleteAdminReport(item.report.id);
+                          }}
+                        >
+                          {adminReportBusyId === item.report.id ? 'Deleting…' : 'Delete report'}
+                        </button>
+                      </div>
                     </div>
                   ))
                 )}

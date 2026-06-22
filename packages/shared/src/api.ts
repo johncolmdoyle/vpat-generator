@@ -30,6 +30,8 @@ export interface ReportRecord {
   edition: ReportEdition;
   scope: CrawlScope;
   status: ReportStatus;
+  isArchived: boolean;
+  archivedAt: string | null;
   productName: string | null;
   productVersion: string | null;
   vendorName: string | null;
@@ -227,6 +229,10 @@ export interface UpdateAdminClientRequest {
   billingEmail?: string | null;
   contactEmail?: string | null;
   internalNotes?: string | null;
+  isArchived?: boolean;
+}
+
+export interface UpdateAdminReportRequest {
   isArchived?: boolean;
 }
 

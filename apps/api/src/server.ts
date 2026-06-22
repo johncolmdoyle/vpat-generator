@@ -11,12 +11,14 @@ import {
   rowToScan,
 } from '@vpat/backend';
 import type {
+  AdminReportSummary,
   AdminClientDetail,
   AdminOverview,
   AdminSupportRequestDetail,
   CreateSupportMessageRequest,
   CreateSupportMessageResponse,
   UpdateAdminClientRequest,
+  UpdateAdminReportRequest,
   UpdateSupportRequestRequest,
   CreateCheckoutRequest,
   CreatePortalRequest,
@@ -540,6 +542,43 @@ export function buildServer() {
     if (!(await requireAdmin(req, reply))) return;
     return { reports: await store.listAdminReports() };
   });
+
+  app.patch<{ Params: { id: string }; Body: UpdateAdminReportRequest }>(
+    '/api/admin/reports/:id',
+    async (req, reply): Promise<AdminReportSummary | void> => {
+      if (!(await requireAdmin(req, reply))) return;
+      const updated = await store.updateAdminReport(req.params.id, { isArchived: req.body?.isArchived });
+      if (!updated) return reply.code(404).send({ error: 'report not found' });
+      await store.recordAuditEvent({
+        actorUserId: req.currentUser!.userId,
+        actorEmail: req.currentUser!.email,
+        action: 'report.admin_updated',
+        targetType: 'report',
+        targetId: req.params.id,
+        subject: req.body?.isArchived ? 'Archived report' : 'Restored report',
+        metadata: (req.body ?? {}) as Record<string, unknown>,
+      });
+      return updated;
+    },
+  );
+
+  app.delete<{ Params: { id: string } }>(
+    '/api/admin/reports/:id',
+    async (req, reply): Promise<{ ok: boolean } | void> => {
+      if (!(await requireAdmin(req, reply))) return;
+      const deleted = await store.deleteAdminReport(req.params.id);
+      if (!deleted) return reply.code(404).send({ error: 'report not found' });
+      await store.recordAuditEvent({
+        actorUserId: req.currentUser!.userId,
+        actorEmail: req.currentUser!.email,
+        action: 'report.admin_deleted',
+        targetType: 'report',
+        targetId: req.params.id,
+        subject: 'Deleted report',
+      });
+      return { ok: true };
+    },
+  );
 
   app.get('/api/admin/support-requests', async (req, reply): Promise<ListAdminSupportRequestsResponse | void> => {
     if (!(await requireAdmin(req, reply))) return;
