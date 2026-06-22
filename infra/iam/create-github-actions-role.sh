@@ -27,6 +27,14 @@ if [[ ! -f "$TRUST_POLICY_FILE" || ! -f "$PERMISSIONS_POLICY_FILE" ]]; then
   exit 1
 fi
 
+PERMISSIONS_POLICY_JSON="$(python3 - "$PERMISSIONS_POLICY_FILE" <<'PY'
+import json, sys
+with open(sys.argv[1], "r", encoding="utf-8") as fh:
+    doc = json.load(fh)
+print(json.dumps(doc, separators=(",", ":")))
+PY
+)"
+
 OIDC_PROVIDER_ARN="arn:aws:iam::${ACCOUNT_ID}:oidc-provider/${OIDC_HOST}"
 ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/${ROLE_NAME}"
 POLICY_ARN="arn:aws:iam::${ACCOUNT_ID}:policy/${POLICY_NAME}"
@@ -80,13 +88,13 @@ if aws iam get-policy --policy-arn "$POLICY_ARN" >/dev/null 2>&1; then
   fi
   aws iam create-policy-version \
     --policy-arn "$POLICY_ARN" \
-    --policy-document "file://${PERMISSIONS_POLICY_FILE}" \
+    --policy-document "$PERMISSIONS_POLICY_JSON" \
     --set-as-default >/dev/null
 else
   echo "Creating policy: $POLICY_NAME"
   aws iam create-policy \
     --policy-name "$POLICY_NAME" \
-    --policy-document "file://${PERMISSIONS_POLICY_FILE}" >/dev/null
+    --policy-document "$PERMISSIONS_POLICY_JSON" >/dev/null
 fi
 
 echo "Attaching policy to role..."
