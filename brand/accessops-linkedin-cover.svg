@@ -1,0 +1,17 @@
+<svg width="1128" height="191" viewBox="0 0 1128 191" role="img" xmlns="http://www.w3.org/2000/svg">
+  <title>AccessOps company cover</title>
+  <desc>AccessOps LinkedIn company page cover: flat indigo field with a centered wordmark and tagline, kept clear of the lower-left where LinkedIn overlays the company logo.</desc>
+  <rect width="1128" height="191" fill="#4f56d3"/>
+
+  <g opacity="0.14" transform="translate(958,14) scale(2.55)">
+    <circle cx="32" cy="32" r="24" fill="none" stroke="#ffffff" stroke-width="2"/>
+    <circle cx="32" cy="56" r="3" fill="#ffffff"/>
+    <circle cx="11.2" cy="20" r="3" fill="#ffffff"/>
+    <circle cx="52.8" cy="20" r="3" fill="#ffffff"/>
+    <circle cx="32" cy="16" r="4" fill="#ffffff"/>
+    <path d="M20 26 H44 M32 22 V37 M32 37 L24 48 M32 37 L40 48" fill="none" stroke="#ffffff" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <text x="600" y="86" text-anchor="middle" font-family="'IBM Plex Sans','Helvetica Neue',Arial,sans-serif" font-size="46" font-weight="600" letter-spacing="-1.4"><tspan fill="#ffffff">Access</tspan><tspan fill="#c9ccf4">Ops</tspan></text>
+  <text x="600" y="120" text-anchor="middle" font-family="'IBM Plex Mono',ui-monospace,monospace" font-size="16" letter-spacing="0.3" fill="#ffffff" fill-opacity="0.82">Accessibility conformance, operationalized.</text>
+</svg>

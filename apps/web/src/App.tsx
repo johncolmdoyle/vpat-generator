@@ -1809,10 +1809,31 @@ function MarketingShell({
   );
 }
 
+/** AccessOps mark: accessibility figure inside the continuous-operations ring.
+ *  White on transparent — the `.mark` container provides the indigo tile. */
+function BrandMark({ size = 17 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+      <circle cx="32" cy="32" r="23" fill="none" stroke="#fff" strokeOpacity="0.55" strokeWidth="3" />
+      <circle cx="32" cy="15" r="5" fill="#fff" />
+      <path
+        d="M19 26 H45 M32 21 V38 M32 38 L23 49 M32 38 L41 49"
+        fill="none"
+        stroke="#fff"
+        strokeWidth="5.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 function Brand() {
   return (
     <div className="brand">
-      <span className="mark">AO</span>
+      <span className="mark">
+        <BrandMark />
+      </span>
       <span className="name">
         {BRAND_NAME}<span className="sub">{BRAND_SUB}</span>
       </span>
@@ -1862,7 +1883,7 @@ function HomePage({ error, onLogin, onSignup }: { error: string | null; onLogin:
               <h1 className="landing-title">AccessOps helps teams draft VPAT reports with evidence, speed, and review discipline.</h1>
             </div>
             <p className="lead landing-lead">
-              {BRAND_SUB} scans a website, drafts an Accessibility Conformance Report, guides your team through every
+              {BRAND_NAME} scans a website, drafts an Accessibility Conformance Report, guides your team through every
               criterion, and exports a review-ready document without pretending automation replaces accessibility expertise.
             </p>
             <div className="row wrap" style={{ gap: 10 }}>
@@ -1934,7 +1955,7 @@ function HomePage({ error, onLogin, onSignup }: { error: string | null; onLogin:
 
       <section className="landing-section">
         <div className="landing-section-head">
-          <div className="eyebrow">What {BRAND_SUB} Does</div>
+          <div className="eyebrow">What {BRAND_NAME} Does</div>
           <h2 className="landing-section-title">A focused workflow for drafting serious accessibility documentation.</h2>
           <p className="lead">
             The product is built for teams that need to explain accessibility clearly to buyers, procurement teams,

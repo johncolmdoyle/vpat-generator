@@ -1,0 +1,10 @@
+<svg width="64" height="64" viewBox="0 0 64 64" role="img" xmlns="http://www.w3.org/2000/svg">
+  <title>AccessOps mark (monochrome)</title>
+  <rect width="64" height="64" rx="16" fill="#23252f"/>
+  <circle cx="32" cy="32" r="24" fill="none" stroke="#ffffff" stroke-opacity="0.34" stroke-width="2"/>
+  <circle cx="32" cy="56" r="3" fill="#ffffff" fill-opacity="0.9"/>
+  <circle cx="11.2" cy="20" r="3" fill="#ffffff" fill-opacity="0.9"/>
+  <circle cx="52.8" cy="20" r="3" fill="#ffffff" fill-opacity="0.9"/>
+  <circle cx="32" cy="16" r="4" fill="#ffffff"/>
+  <path d="M20 26 H44 M32 22 V37 M32 37 L24 48 M32 37 L40 48" fill="none" stroke="#ffffff" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
