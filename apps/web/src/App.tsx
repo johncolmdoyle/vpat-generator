@@ -248,6 +248,14 @@ function AuthenticatedApp() {
     }
   };
 
+  const openUpgradeFlow = async () => {
+    if (account?.canManageBilling) {
+      await openPortal();
+      return;
+    }
+    await startCheckout('growth');
+  };
+
   useEffect(() => {
     if (!hasApi) return;
     setAccessTokenProvider(() =>
@@ -414,7 +422,7 @@ function AuthenticatedApp() {
       }}
       onOpenReport={(reportId) => void openReport(reportId)}
       onRefresh={() => void refreshReports()}
-      onUpgradeGrowth={() => void startCheckout('growth')}
+      onUpgradeGrowth={() => void openUpgradeFlow()}
       onManageBilling={() => void openPortal()}
       onSignout={signout}
     />
@@ -427,7 +435,7 @@ function AuthenticatedApp() {
         setAccount(next);
         void refreshReports();
       }}
-      onUpgradeGrowth={() => void startCheckout('growth')}
+      onUpgradeGrowth={() => void openUpgradeFlow()}
       onBackToReports={() => {
         setActiveDetail(null);
         setActiveView('dashboard');
@@ -449,7 +457,7 @@ function AuthenticatedApp() {
             </span>
           )}
           {account?.plan === 'starter' && (
-            <button className="btn btn-primary btn-sm" onClick={() => void startCheckout('growth')} disabled={billingBusy}>
+            <button className="btn btn-primary btn-sm" onClick={() => void openUpgradeFlow()} disabled={billingBusy}>
               {billingBusy ? 'Opening billing…' : 'Upgrade'}
             </button>
           )}
