@@ -765,6 +765,31 @@ h1.title {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
 }
+.terms-shell {
+  display: grid;
+  gap: 14px;
+}
+.terms-intro-card {
+  background:
+    linear-gradient(145deg, color-mix(in oklab, var(--accent) 5%, var(--surface)) 0%, var(--surface) 60%, color-mix(in oklab, var(--ok) 4%, var(--surface)) 100%);
+}
+.terms-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.terms-card {
+  min-height: 0;
+}
+.terms-card-title {
+  margin: 0 0 14px;
+  font-size: 18px;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+.terms-copy {
+  margin: 0;
+}
 .landing-feature-card {
   min-height: 220px;
 }
@@ -998,6 +1023,7 @@ h1.title {
 @media (max-width: 980px) {
   .landing-grid,
   .landing-cards,
+  .terms-grid,
   .landing-split,
   .landing-cta,
   .support-grid,

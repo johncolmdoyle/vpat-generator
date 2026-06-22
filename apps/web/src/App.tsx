@@ -52,11 +52,13 @@ const STEPS = [
 
 const BRAND_NAME = 'AccessOps';
 const BRAND_SUB = 'VPAT Builder';
+const LINKEDIN_URL = 'https://www.linkedin.com/company/access-ops/';
 const MARKETING_PAGES = [
   { id: 'home', label: 'Overview' },
   { id: 'pricing', label: 'Pricing' },
   { id: 'faq', label: 'FAQ' },
   { id: 'about', label: 'For Startups' },
+  { id: 'terms', label: 'Terms' },
 ] as const;
 type MarketingPage = (typeof MARKETING_PAGES)[number]['id'];
 type PricingTier = {
@@ -205,6 +207,58 @@ const FAQS = [
   {
     q: 'Can we use it for authenticated product flows?',
     a: 'Yes. The workflow supports secured scans so teams can evaluate real customer journeys instead of only public marketing pages.',
+  },
+] as const;
+
+const TERMS_SECTIONS = [
+  {
+    title: 'Use of the service',
+    body: [
+      'AccessOps provides software and related services to help teams draft accessibility documentation, organize review workflows, and manage report artifacts. You agree to use the service only for lawful business purposes and only in a way that does not interfere with the security, availability, or integrity of the platform.',
+      'You are responsible for the content you submit, the systems you authorize us to scan, and the accuracy of any information your team approves for inclusion in a report. Draft outputs are decision-support materials and remain subject to your review before publication or external distribution.',
+    ],
+  },
+  {
+    title: 'Accounts and workspace access',
+    body: [
+      'You are responsible for maintaining the confidentiality of your account credentials and for activity that occurs under your workspace, except to the extent caused by our own unauthorized actions. You agree to notify us promptly if you believe your account or a connected system has been compromised.',
+      'We may suspend or restrict access when reasonably necessary to protect the platform, comply with law, or respond to suspected abuse, fraud, or security issues.',
+    ],
+  },
+  {
+    title: 'Customer content and drafts',
+    body: [
+      'You retain your rights in the data, documents, evidence, screenshots, and other materials you submit to the service. You grant AccessOps the limited rights needed to host, process, transmit, back up, and display that content solely for providing and improving the service for your workspace.',
+      'Because accessibility reports often require human judgment, you remain responsible for final reviewer approval, factual accuracy, and any publication or customer-facing statements derived from the platform.',
+    ],
+  },
+  {
+    title: 'Public reference and logo usage',
+    body: [
+      'Unless your order form, a separate written agreement, or a written notice from you says otherwise, you grant AccessOps permission to identify your company as a customer in a factual manner for marketing purposes, including use of your company name and logo on our website, customer lists, presentations, and similar promotional materials.',
+      'We will not imply endorsement beyond your status as a customer, and we will stop new logo or name usage within a commercially reasonable period after receiving a written opt-out request from an authorized representative.',
+    ],
+  },
+  {
+    title: 'Fees, renewals, and cancellation',
+    body: [
+      'Paid subscriptions are billed in advance on the cadence presented at checkout and automatically renew unless cancelled before the renewal date. You authorize us and our payment processor to charge the applicable subscription fees, taxes, and any other amounts clearly disclosed during purchase or plan changes.',
+      'Except where required by law or expressly stated otherwise, fees are non-refundable for the then-current billing period. You may cancel future renewals through the billing management experience or by contacting support.',
+    ],
+  },
+  {
+    title: 'Warranty disclaimer and liability limits',
+    body: [
+      'The service is provided on an “as is” and “as available” basis to the maximum extent permitted by law. We disclaim implied warranties, including implied warranties of merchantability, fitness for a particular purpose, and non-infringement.',
+      'To the maximum extent permitted by law, AccessOps will not be liable for indirect, incidental, special, consequential, exemplary, or punitive damages, or for lost profits, revenues, goodwill, or data. Our aggregate liability for claims arising out of or relating to the service will not exceed the amounts paid by you to AccessOps for the service during the twelve months before the event giving rise to the claim.',
+    ],
+  },
+  {
+    title: 'Changes and contact',
+    body: [
+      'We may update these Terms from time to time. If we make a material change, we will post the updated version on the site and update the effective date. Continued use of the service after the effective date of the updated Terms constitutes acceptance of the revised Terms.',
+      'If you have questions about these Terms, contact support through the product support center so we can route the request to the right team.',
+    ],
   },
 ] as const;
 
@@ -671,6 +725,9 @@ function AuthenticatedApp() {
         )}
         actions={
           <div className="row" style={{ gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <a className="btn btn-ghost btn-sm" href={LINKEDIN_URL} target="_blank" rel="noreferrer">
+              LinkedIn
+            </a>
             <button className="btn btn-ghost btn-sm" onClick={login}>
               Log in
             </button>
@@ -1866,6 +1923,7 @@ function MarketingSite({
   if (page === 'pricing') return <PricingPage onLogin={onLogin} onSignup={onSignup} />;
   if (page === 'faq') return <FaqPage onSignup={onSignup} />;
   if (page === 'about') return <StartupPage onLogin={onLogin} onSignup={onSignup} />;
+  if (page === 'terms') return <TermsPage onSignup={onSignup} />;
   return <HomePage error={error} onLogin={onLogin} onSignup={onSignup} />;
 }
 
@@ -2214,6 +2272,57 @@ function StartupPage({ onLogin, onSignup }: { onLogin: () => void; onSignup: () 
         secondaryLabel="Log in"
         onPrimary={onSignup}
         onSecondary={onLogin}
+      />
+    </>
+  );
+}
+
+function TermsPage({ onSignup }: { onSignup: () => void }) {
+  return (
+    <>
+      <section className="landing-section">
+        <div className="landing-section-head">
+          <div className="eyebrow">Terms & Conditions</div>
+          <h1 className="landing-section-title">Terms governing use of the AccessOps VPAT Builder platform.</h1>
+          <p className="lead">
+            Effective date: June 22, 2026. This page provides a working terms template for the product experience and
+            should still be reviewed by counsel before you treat it as final legal language.
+          </p>
+        </div>
+
+        <div className="terms-shell">
+          <article className="card terms-intro-card">
+            <p className="landing-card-copy" style={{ marginTop: 0 }}>
+              By accessing or using AccessOps, you agree to these Terms &amp; Conditions. If you are accepting these
+              Terms on behalf of a company or other legal entity, you represent that you have authority to bind that
+              entity to these Terms.
+            </p>
+          </article>
+
+          <div className="terms-grid">
+            {TERMS_SECTIONS.map((section) => (
+              <article key={section.title} className="card terms-card">
+                <h2 className="terms-card-title">{section.title}</h2>
+                <div className="col" style={{ gap: 12 }}>
+                  {section.body.map((paragraph) => (
+                    <p key={paragraph} className="landing-card-copy terms-copy">
+                      {paragraph}
+                    </p>
+                  ))}
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <LandingCta
+        title="Create an account when you’re ready to use the platform."
+        body="You can review pricing, create a workspace, and manage subscription terms from the billing flow after sign-up."
+        primaryLabel="Create account"
+        secondaryLabel="See pricing"
+        onPrimary={onSignup}
+        secondaryHref="#pricing"
       />
     </>
   );
