@@ -28,6 +28,82 @@ interface ScanCredentials {
   loginUrl?: string;
 }
 
+function normalizeCrawlUrl(input: string, origin: string): string | null {
+  try {
+    const url = new URL(input, origin);
+    if (url.origin !== origin) return null;
+    url.hash = '';
+    if (url.pathname !== '/' && url.pathname.endsWith('/')) url.pathname = url.pathname.replace(/\/+$/, '');
+    if ((url.pathname === '/' || url.pathname === '') && !url.search) return origin;
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+async function waitForSettled(page: Page): Promise<void> {
+  await page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {});
+  await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
+  await page.waitForTimeout(1200).catch(() => {});
+}
+
+async function collectCandidateUrls(page: Page, origin: string): Promise<string[]> {
+  const raw = await page.evaluate(() => {
+    const out = new Set<string>();
+
+    for (const el of Array.from(document.querySelectorAll('a[href], area[href], form[action], [data-href]'))) {
+      if (el instanceof HTMLAnchorElement || el instanceof HTMLAreaElement) {
+        if (el.href) out.add(el.href);
+        continue;
+      }
+      if (el instanceof HTMLFormElement) {
+        if (el.action) out.add(el.action);
+        continue;
+      }
+      const dataHref = el.getAttribute('data-href');
+      if (dataHref) out.add(dataHref);
+    }
+
+    return [...out];
+  });
+
+  const normalized = raw
+    .map((value) => normalizeCrawlUrl(value, origin))
+    .filter((value): value is string => Boolean(value));
+
+  return [...new Set(normalized)];
+}
+
+async function discoverUrls(page: Page, seedUrls: string[], limit: number, emit: Emitter): Promise<string[]> {
+  const origin = new URL(seedUrls[0]).origin;
+  const discovered = new Set<string>();
+  const queue: string[] = [];
+
+  for (const seed of seedUrls) {
+    const normalized = normalizeCrawlUrl(seed, origin);
+    if (!normalized || discovered.has(normalized)) continue;
+    discovered.add(normalized);
+    queue.push(normalized);
+    if (discovered.size >= limit) break;
+  }
+
+  for (let i = 0; i < queue.length && discovered.size < limit; i++) {
+    const current = queue[i];
+    await emit.emit({ kind: 'log', level: 'phase', text: 'Discovering links', meta: new URL(current).pathname || '/' });
+    await page.goto(current, { waitUntil: 'domcontentloaded', timeout: 20000 });
+    await waitForSettled(page);
+    const links = await collectCandidateUrls(page, origin);
+    for (const link of links) {
+      if (discovered.has(link)) continue;
+      discovered.add(link);
+      queue.push(link);
+      if (discovered.size >= limit) break;
+    }
+  }
+
+  return queue.slice(0, limit);
+}
+
 /** axe wcag tag (e.g. "wcag1411") → success-criterion id ("1.4.11"). */
 function tagToCriterion(tag: string): string | null {
   const m = /^wcag(\d)(\d)(\d+)$/.exec(tag);
@@ -111,7 +187,7 @@ async function waitForCredentialFields(page: Page): Promise<boolean> {
   return false;
 }
 
-async function authenticate(page: Page, base: string, creds: ScanCredentials, emit: Emitter): Promise<void> {
+async function authenticate(page: Page, base: string, creds: ScanCredentials, emit: Emitter): Promise<string> {
   const loginTarget = new URL(creds.loginUrl || '/login', base).toString();
   await emit.emit({ kind: 'log', level: 'phase', text: `Opening login page`, meta: creds.loginUrl || '/login' });
   await page.goto(loginTarget, { waitUntil: 'domcontentloaded', timeout: 30000 });
@@ -153,11 +229,10 @@ async function authenticate(page: Page, base: string, creds: ScanCredentials, em
   for (let attempt = 0; attempt < 60; attempt++) {
     const currentUrl = page.url();
     if (new URL(currentUrl).origin === new URL(base).origin && !/\/login\b/.test(new URL(currentUrl).pathname)) {
-      if (currentUrl !== base) {
-        await page.goto(base, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
-      }
+      await waitForSettled(page);
+      const normalized = normalizeCrawlUrl(currentUrl, new URL(base).origin) ?? base;
       await emit.emit({ kind: 'log', level: 'ok', text: `Authenticated session ready`, meta: new URL(currentUrl).pathname || '/' });
-      return;
+      return normalized;
     }
     await page.waitForTimeout(1000);
   }
@@ -175,40 +250,36 @@ async function realScan(job: ScanJobMessage, emit: Emitter): Promise<AnalysisRes
   try {
     const context = await browser.newContext();
     const page = await context.newPage();
+    let authenticatedSeed = base;
 
     if (job.authMode === 'auth' && job.authSecretId) {
       const creds = await readSecret<ScanCredentials>(job.authSecretId);
       if (!creds?.user || !creds?.pass) throw new Error('authenticated scan failed: credentials secret missing or unreadable');
-      await authenticate(page, base, creds, emit);
+      authenticatedSeed = await authenticate(page, base, creds, emit);
     }
 
     // Discover pages.
     const limit = job.scope === 'single' ? 1 : 8;
-    const urls = new Set<string>([base]);
-    if (job.scope !== 'single') {
-      await page.goto(base, { waitUntil: 'domcontentloaded', timeout: 15000 });
-      const links: string[] = await page.$$eval('a[href]', (as) =>
-        (as as HTMLAnchorElement[]).map((a) => a.href),
-      );
-      for (const href of links) {
-        try {
-          if (new URL(href).origin === new URL(base).origin) urls.add(href.split('#')[0]);
-        } catch {
-          /* ignore malformed */
-        }
-        if (urls.size >= limit) break;
-      }
-    }
+    const urls =
+      job.scope === 'single'
+        ? [job.authMode === 'auth' ? authenticatedSeed : base]
+        : await discoverUrls(
+            page,
+            job.authMode === 'auth' ? [authenticatedSeed, base] : [base],
+            limit,
+            emit,
+          );
 
     const pages: AnalysisResult['pages'] = [];
     const issuesByUrl = new Map<string, number>();
     const perCriterion = new Map<string, CriterionData>();
 
-    for (const url of [...urls].slice(0, limit)) {
+    for (const url of urls.slice(0, limit)) {
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
+      await waitForSettled(page);
       const title = await page.title();
       const path = new URL(url).pathname || '/';
-      pages.push({ url: path, title: title || path, auth: false });
+      pages.push({ url: path, title: title || path, auth: job.authMode === 'auth' });
 
       const results = await new AxeBuilder({ page })
         .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
