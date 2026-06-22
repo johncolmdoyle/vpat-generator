@@ -40,6 +40,9 @@ unset AWS_SECURITY_TOKEN
 : "${ANTHROPIC_MODEL:=claude-sonnet-4-6}"
 : "${TF_DOMAIN_NAME:=}"
 : "${TF_HOSTED_ZONE_NAME:=}"
+: "${TF_STATE_BUCKET:=accessops-vpat-terraform-state}"
+: "${TF_STATE_LOCK_TABLE:=accessops-vpat-terraform-locks}"
+: "${TF_STATE_KEY:=${ENVIRONMENT}/terraform.tfstate}"
 : "${AUTH0_DOMAIN:?AUTH0_DOMAIN must be set in .env}"
 : "${AUTH0_AUDIENCE:?AUTH0_AUDIENCE must be set in .env}"
 : "${VITE_AUTH0_DOMAIN:?VITE_AUTH0_DOMAIN must be set in .env}"
@@ -50,7 +53,12 @@ ADMIN_IP="$(curl -fsS https://checkip.amazonaws.com | tr -d '\n')"
 ADMIN_CIDR="${ADMIN_IP}/32"
 
 cd "$TF_DIR"
-terraform init
+terraform init \
+  -backend-config="bucket=${TF_STATE_BUCKET}" \
+  -backend-config="key=${TF_STATE_KEY}" \
+  -backend-config="region=${AWS_REGION}" \
+  -backend-config="dynamodb_table=${TF_STATE_LOCK_TABLE}" \
+  -backend-config="encrypt=true"
 
 terraform apply \
   -auto-approve \

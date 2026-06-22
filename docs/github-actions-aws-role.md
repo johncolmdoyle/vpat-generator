@@ -83,6 +83,9 @@ Required variables:
 - `DEPLOY_ENVIRONMENT=dev`
 - `TF_DOMAIN_NAME=vpatbuilder.com`
 - `TF_HOSTED_ZONE_NAME=vpatbuilder.com`
+- `TF_STATE_BUCKET=accessops-vpat-terraform-state`
+- `TF_STATE_LOCK_TABLE=accessops-vpat-terraform-locks`
+- `TF_STATE_KEY=dev/terraform.tfstate`
 - `AUTH0_DOMAIN=...`
 - `AUTH0_AUDIENCE=...`
 - `VITE_AUTH0_DOMAIN=...`

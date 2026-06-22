@@ -28,6 +28,9 @@ done
 : "${ANTHROPIC_MODEL:=claude-sonnet-4-6}"
 : "${TF_DOMAIN_NAME:=}"
 : "${TF_HOSTED_ZONE_NAME:=}"
+: "${TF_STATE_BUCKET:=accessops-vpat-terraform-state}"
+: "${TF_STATE_LOCK_TABLE:=accessops-vpat-terraform-locks}"
+: "${TF_STATE_KEY:=${ENVIRONMENT}/terraform.tfstate}"
 
 require_env AUTH0_DOMAIN
 require_env AUTH0_AUDIENCE
@@ -38,7 +41,12 @@ require_env VITE_AUTH0_AUDIENCE
 ADMIN_IP="$(curl -fsS https://checkip.amazonaws.com | tr -d '\n')"
 ADMIN_CIDR="${ADMIN_IP}/32"
 
-terraform -chdir="$TF_DIR" init
+terraform -chdir="$TF_DIR" init \
+  -backend-config="bucket=${TF_STATE_BUCKET}" \
+  -backend-config="key=${TF_STATE_KEY}" \
+  -backend-config="region=${AWS_REGION}" \
+  -backend-config="dynamodb_table=${TF_STATE_LOCK_TABLE}" \
+  -backend-config="encrypt=true"
 
 terraform -chdir="$TF_DIR" apply \
   -auto-approve \
