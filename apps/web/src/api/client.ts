@@ -49,9 +49,9 @@ export function setUserEmailProvider(provider: (() => string | null) | null) {
   userEmailProvider = provider;
 }
 
-async function authHeaders(init?: HeadersInit): Promise<Headers> {
+async function authHeaders(init?: HeadersInit, includeJsonContentType = true): Promise<Headers> {
   const headers = new Headers(init);
-  if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+  if (includeJsonContentType && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
   if (!headers.has('Accept')) headers.set('Accept', 'application/json');
   if (accessTokenProvider) {
     const token = await accessTokenProvider();
@@ -65,8 +65,9 @@ async function authHeaders(init?: HeadersInit): Promise<Headers> {
 }
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = await authHeaders(init?.headers, Boolean(init?.body));
   const res = await fetch(`${API_URL}${path}`, {
-    headers: await authHeaders(init?.headers),
+    headers,
     ...init,
   });
   if (!res.ok) {

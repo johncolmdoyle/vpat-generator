@@ -47,6 +47,37 @@ async function waitForSettled(page: Page): Promise<void> {
   await page.waitForTimeout(1200).catch(() => {});
 }
 
+async function settleAuthenticatedUrl(page: Page, base: string): Promise<string> {
+  const origin = new URL(base).origin;
+  let best = normalizeCrawlUrl(page.url(), origin) ?? base;
+  let previous = page.url();
+  let unchangedTicks = 0;
+
+  for (let attempt = 0; attempt < 12; attempt++) {
+    await page.waitForTimeout(500);
+    const current = page.url();
+    if (current === previous) unchangedTicks += 1;
+    else {
+      unchangedTicks = 0;
+      previous = current;
+    }
+
+    try {
+      const url = new URL(current);
+      if (url.origin === origin && !/\/login\b/.test(url.pathname)) {
+        const normalized = normalizeCrawlUrl(current, origin) ?? base;
+        if (normalized !== origin || best === origin) best = normalized;
+      }
+    } catch {
+      /* ignore transient invalid URLs */
+    }
+
+    if (unchangedTicks >= 3) break;
+  }
+
+  return best;
+}
+
 async function collectCandidateUrls(page: Page, origin: string): Promise<string[]> {
   const raw = await page.evaluate(() => {
     const out = new Set<string>();
@@ -230,9 +261,9 @@ async function authenticate(page: Page, base: string, creds: ScanCredentials, em
     const currentUrl = page.url();
     if (new URL(currentUrl).origin === new URL(base).origin && !/\/login\b/.test(new URL(currentUrl).pathname)) {
       await waitForSettled(page);
-      const normalized = normalizeCrawlUrl(currentUrl, new URL(base).origin) ?? base;
-      await emit.emit({ kind: 'log', level: 'ok', text: `Authenticated session ready`, meta: new URL(currentUrl).pathname || '/' });
-      return normalized;
+      const settled = await settleAuthenticatedUrl(page, base);
+      await emit.emit({ kind: 'log', level: 'ok', text: `Authenticated session ready`, meta: new URL(settled).pathname || '/' });
+      return settled;
     }
     await page.waitForTimeout(1000);
   }

@@ -1222,6 +1222,34 @@ function ReportsDashboard({
           )}
         </section>
 
+        {account?.isAdmin && (
+          <AdminConsole
+            overview={adminOverview}
+            clients={adminClients}
+            reports={adminReports}
+            supportRequests={adminSupportRequests}
+            loading={adminLoading}
+            error={adminError}
+            activeClient={activeAdminClient}
+            activeSupportRequest={activeAdminSupportRequest}
+            clientLoading={adminClientLoading}
+            supportLoading={adminSupportLoading}
+            supportSubmitting={adminSupportSubmitting}
+            adminClientSaving={adminClientSaving}
+            onRefresh={onRefreshAdmin}
+            onOpenClient={onOpenAdminClient}
+            onCloseClient={onCloseAdminClient}
+            onUpdateAdminClient={onUpdateAdminClient}
+            onOpenSupportRequest={onOpenAdminSupportRequest}
+            onCloseSupportRequest={onCloseAdminSupportRequest}
+            onSubmitSupportMessage={onSubmitAdminSupportMessage}
+            onUpdateSupportStatus={onUpdateAdminSupportStatus}
+            onUpdateAdminReport={onUpdateAdminReport}
+            onDeleteAdminReport={onDeleteAdminReport}
+            adminReportBusyId={adminReportBusyId}
+          />
+        )}
+
         <section className="landing-section" id="support-center" aria-labelledby="support-center-title">
           <div className="landing-section-head" style={{ marginBottom: 18 }}>
             <div className="eyebrow">Support Center</div>
@@ -1475,33 +1503,6 @@ function ReportsDashboard({
           </div>
         </section>
 
-        {account?.isAdmin && (
-          <AdminConsole
-            overview={adminOverview}
-            clients={adminClients}
-            reports={adminReports}
-            supportRequests={adminSupportRequests}
-            loading={adminLoading}
-            error={adminError}
-            activeClient={activeAdminClient}
-            activeSupportRequest={activeAdminSupportRequest}
-            clientLoading={adminClientLoading}
-            supportLoading={adminSupportLoading}
-            supportSubmitting={adminSupportSubmitting}
-            adminClientSaving={adminClientSaving}
-            onRefresh={onRefreshAdmin}
-            onOpenClient={onOpenAdminClient}
-            onCloseClient={onCloseAdminClient}
-            onUpdateAdminClient={onUpdateAdminClient}
-            onOpenSupportRequest={onOpenAdminSupportRequest}
-            onCloseSupportRequest={onCloseAdminSupportRequest}
-            onSubmitSupportMessage={onSubmitAdminSupportMessage}
-            onUpdateSupportStatus={onUpdateAdminSupportStatus}
-            onUpdateAdminReport={onUpdateAdminReport}
-            onDeleteAdminReport={onDeleteAdminReport}
-            adminReportBusyId={adminReportBusyId}
-          />
-        )}
       </main>
     </div>
   );
@@ -1563,6 +1564,8 @@ function AdminConsole({
   const [clientBillingEmail, setClientBillingEmail] = useState('');
   const [clientContactEmail, setClientContactEmail] = useState('');
   const [clientInternalNotes, setClientInternalNotes] = useState('');
+  const [clientSearch, setClientSearch] = useState('');
+  const [showArchivedClients, setShowArchivedClients] = useState(false);
 
   useEffect(() => {
     setClientBillingEmail(activeClient?.client.billingEmail ?? '');
@@ -1587,6 +1590,18 @@ function AdminConsole({
 
   const archiveReportLabel = (item: AdminReportSummary) => (item.report.isArchived ? 'Restore report' : 'Archive report');
   const archiveReportTone = (item: AdminReportSummary) => (item.report.isArchived ? 'btn-ghost' : 'btn-danger');
+  const filteredClients = clients.filter((client) => {
+    if (!showArchivedClients && client.isArchived) return false;
+    if (!clientSearch.trim()) return true;
+    const needle = clientSearch.trim().toLowerCase();
+    return (
+      client.email.toLowerCase().includes(needle) ||
+      (client.billingEmail ?? '').toLowerCase().includes(needle) ||
+      (client.contactEmail ?? '').toLowerCase().includes(needle) ||
+      client.plan.toLowerCase().includes(needle) ||
+      (client.subscriptionStatus ?? '').toLowerCase().includes(needle)
+    );
+  });
 
   return (
     <section className="landing-section" id="admin-console" aria-labelledby="admin-console-title">
@@ -1643,7 +1658,30 @@ function AdminConsole({
         <div className="card">
           <div className="eyebrow">Clients</div>
           <div className="col" style={{ gap: 10, marginTop: 16 }}>
-            {clients.map((client) => (
+            <div className="field">
+              <label htmlFor="admin-client-search">Search clients</label>
+              <input
+                id="admin-client-search"
+                className="input"
+                value={clientSearch}
+                onChange={(e) => setClientSearch(e.target.value)}
+                placeholder="Search by email, billing email, plan, or subscription"
+              />
+            </div>
+            <label className="row" style={{ gap: 8, alignItems: 'center', fontSize: 13.5 }}>
+              <input
+                type="checkbox"
+                checked={showArchivedClients}
+                onChange={(e) => setShowArchivedClients(e.target.checked)}
+              />
+              <span>Show archived clients</span>
+            </label>
+          </div>
+          <div className="col" style={{ gap: 10, marginTop: 16 }}>
+            {filteredClients.length === 0 ? (
+              <p className="landing-card-copy">No clients match the current filters.</p>
+            ) : (
+              filteredClients.map((client) => (
               <button key={client.id} className="admin-list-row" type="button" onClick={() => onOpenClient(client.id)}>
                 <div className="row between wrap" style={{ gap: 10 }}>
                   <strong>{client.email}</strong>
@@ -1656,7 +1694,8 @@ function AdminConsole({
                   {client.hasActiveSubscription ? 'Active subscription' : client.subscriptionStatus ?? 'No subscription'} · {client.reportCount} reports · {client.openSupportRequests} open tickets
                 </div>
               </button>
-            ))}
+              ))
+            )}
           </div>
         </div>
 
