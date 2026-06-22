@@ -70,8 +70,6 @@ export async function migrate(): Promise<void> {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `);
-  await pool.query(`ALTER TABLE support_requests DROP COLUMN IF EXISTS message`);
-  await pool.query(`ALTER TABLE support_requests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now()`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS support_request_messages (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -80,6 +78,38 @@ export async function migrate(): Promise<void> {
       body TEXT NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
+  `);
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = 'support_requests' AND column_name = 'message'
+      ) THEN
+        INSERT INTO support_request_messages (support_request_id, author_role, body, created_at)
+        SELECT sr.id, 'customer', sr.message, sr.created_at
+        FROM support_requests sr
+        WHERE sr.message IS NOT NULL
+          AND sr.message <> ''
+          AND NOT EXISTS (
+            SELECT 1
+            FROM support_request_messages srm
+            WHERE srm.support_request_id = sr.id
+          );
+      END IF;
+    END $$;
+  `);
+  await pool.query(`ALTER TABLE support_requests DROP COLUMN IF EXISTS message`);
+  await pool.query(`ALTER TABLE support_requests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now()`);
+  await pool.query(`
+    ALTER TABLE support_requests
+    DROP CONSTRAINT IF EXISTS support_requests_status_check
+  `);
+  await pool.query(`
+    ALTER TABLE support_requests
+    ADD CONSTRAINT support_requests_status_check
+    CHECK (status IN ('open','pending','resolved','closed'))
   `);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS audit_events (

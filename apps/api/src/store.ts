@@ -585,7 +585,7 @@ export async function getAdminClientDetail(clientId: string): Promise<AdminClien
   }>(
     `SELECT id, action, target_type, target_id, actor_user_id, actor_email, subject, metadata, created_at
      FROM audit_events
-     WHERE target_id = $1 OR actor_user_id = $1
+     WHERE target_id = $1::text OR actor_user_id = $1::uuid
      ORDER BY created_at DESC
      LIMIT 50`,
     [clientId],
