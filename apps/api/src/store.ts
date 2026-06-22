@@ -1,5 +1,6 @@
 /** Postgres data access for the API. */
 import {
+  rowToSupportRequest,
   toAccountSummary,
   env,
   query,
@@ -13,6 +14,7 @@ import {
   type FindingRow,
   type EvidenceRow,
   type UserRow,
+  type SupportRequestRow,
 } from '@vpat/backend';
 import {
   type AccountSummary,
@@ -22,6 +24,8 @@ import {
   type ConformanceLevel,
   type Evidence,
   type Finding,
+  type SupportRequestCategory,
+  type SupportRequestRecord,
   type ReportDetail,
   type ReportStatus,
   type SequencedScanEvent,
@@ -356,4 +360,31 @@ export async function recordExport(
     `INSERT INTO exports (report_id, format, s3_key, filename) VALUES ($1, $2, $3, $4)`,
     [reportId, format, s3Key, filename],
   );
+}
+
+export async function listSupportRequests(userId: string): Promise<SupportRequestRecord[]> {
+  const rows = await query<SupportRequestRow>(
+    `SELECT id, category, status, subject, message, created_at
+     FROM support_requests
+     WHERE user_id = $1
+     ORDER BY created_at DESC
+     LIMIT 10`,
+    [userId],
+  );
+  return rows.map(rowToSupportRequest);
+}
+
+export async function createSupportRequest(
+  userId: string,
+  category: SupportRequestCategory,
+  subject: string,
+  message: string,
+): Promise<SupportRequestRecord> {
+  const row = await queryOne<SupportRequestRow>(
+    `INSERT INTO support_requests (user_id, category, subject, message)
+     VALUES ($1, $2, $3, $4)
+     RETURNING id, category, status, subject, message, created_at`,
+    [userId, category, subject, message],
+  );
+  return rowToSupportRequest(row!);
 }

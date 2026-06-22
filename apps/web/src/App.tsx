@@ -16,6 +16,8 @@ import {
   type ReportMeta,
   type ReportRecord,
   type SelfServePlan,
+  type SupportRequestCategory,
+  type SupportRequestRecord,
   type WcagTarget,
   type WizardForm,
 } from '@vpat/shared';
@@ -152,6 +154,9 @@ const SUPPORT_FAQS = [
 function subscriptionIssueMessage(account: AccountSummary | null | undefined): string | null {
   if (!account) return null;
   if (account.hasActiveSubscription) return null;
+  if (account.subscriptionStatus === 'past_due' || account.subscriptionStatus === 'unpaid') {
+    return 'Your subscription has a billing issue. Update your payment method before creating or editing VPAT reports.';
+  }
   return `Your account does not have an active subscription yet. Complete billing setup before creating or editing VPAT reports.`;
 }
 
@@ -238,6 +243,11 @@ function AuthenticatedApp() {
   const [reports, setReports] = useState<ReportRecord[]>([]);
   const [reportsLoading, setReportsLoading] = useState(false);
   const [reportsError, setReportsError] = useState<string | null>(null);
+  const [supportRequests, setSupportRequests] = useState<SupportRequestRecord[]>([]);
+  const [supportLoading, setSupportLoading] = useState(false);
+  const [supportError, setSupportError] = useState<string | null>(null);
+  const [supportSubmitting, setSupportSubmitting] = useState(false);
+  const [billingNotice, setBillingNotice] = useState<{ tone: 'ok' | 'warn' | 'bad'; text: string } | null>(null);
   const [activeDetail, setActiveDetail] = useState<ReportDetail | null>(null);
   const [activeView, setActiveView] = useState<'dashboard' | 'wizard'>('dashboard');
   const checkoutLaunchStarted = useRef(false);
@@ -278,6 +288,19 @@ function AuthenticatedApp() {
       .finally(() => setReportsLoading(false));
   };
 
+  const refreshSupportRequests = () => {
+    setSupportLoading(true);
+    setSupportError(null);
+    return api
+      .listSupportRequests()
+      .then((res) => setSupportRequests(res.requests))
+      .catch((e) => {
+        console.error('listSupportRequests failed', e);
+        setSupportError(e instanceof Error ? e.message : 'Could not load support requests');
+      })
+      .finally(() => setSupportLoading(false));
+  };
+
   const redirectToUrl = (url: string) => {
     window.location.assign(url);
   };
@@ -289,6 +312,7 @@ function AuthenticatedApp() {
       redirectToUrl(url);
     } catch (e) {
       console.error('createCheckout failed', e);
+      setBillingNotice({ tone: 'bad', text: e instanceof Error ? e.message : 'Could not open Stripe checkout.' });
       setBillingBusy(false);
     }
   };
@@ -300,6 +324,7 @@ function AuthenticatedApp() {
       redirectToUrl(url);
     } catch (e) {
       console.error('createPortal failed', e);
+      setBillingNotice({ tone: 'bad', text: e instanceof Error ? e.message : 'Could not open billing portal.' });
       setBillingBusy(false);
     }
   };
@@ -334,6 +359,7 @@ function AuthenticatedApp() {
     if (!hasApi || !isAuthenticated) return;
     void refreshAccount();
     void refreshReports();
+    void refreshSupportRequests();
   }, [isAuthenticated]);
 
   useEffect(() => {
@@ -343,6 +369,7 @@ function AuthenticatedApp() {
     const sessionId = params.get('session_id');
     if (state === 'cancel') {
       setPendingCheckout(null);
+      setBillingNotice({ tone: 'warn', text: 'Billing setup was canceled before completion.' });
       const url = new URL(window.location.href);
       url.searchParams.delete('checkout');
       window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
@@ -356,12 +383,16 @@ function AuthenticatedApp() {
       .then((res) => {
         setPendingCheckout(null);
         setAccount(res.account);
+        setBillingNotice({ tone: 'ok', text: 'Billing is active. You can create and edit reports now.' });
         const url = new URL(window.location.href);
         url.searchParams.delete('checkout');
         url.searchParams.delete('session_id');
         window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
       })
-      .catch((e) => console.error('confirmCheckout failed', e))
+      .catch((e) => {
+        console.error('confirmCheckout failed', e);
+        setBillingNotice({ tone: 'bad', text: e instanceof Error ? e.message : 'Could not confirm billing setup.' });
+      })
       .finally(() => setBillingBusy(false));
   }, [isAuthenticated]);
 
@@ -383,10 +414,26 @@ function AuthenticatedApp() {
       })
       .catch((e) => {
         console.error('auto createCheckout failed', e);
+        setBillingNotice({ tone: 'bad', text: e instanceof Error ? e.message : 'Could not start billing setup.' });
         checkoutLaunchStarted.current = false;
       })
       .finally(() => setBillingBusy(false));
   }, [account, billingBusy, isAuthenticated, pendingCheckoutPlan]);
+
+  const submitSupportRequest = async (category: SupportRequestCategory, subject: string, message: string) => {
+    setSupportSubmitting(true);
+    setSupportError(null);
+    try {
+      const res = await api.createSupportRequest({ category, subject, message });
+      setSupportRequests((current) => [res.request, ...current].slice(0, 10));
+    } catch (e) {
+      console.error('createSupportRequest failed', e);
+      setSupportError(e instanceof Error ? e.message : 'Could not submit support request');
+      throw e;
+    } finally {
+      setSupportSubmitting(false);
+    }
+  };
 
   const openReport = async (reportId: string) => {
     try {
@@ -477,6 +524,7 @@ function AuthenticatedApp() {
       reportsLoading={reportsLoading}
       reportsError={reportsError}
       billingBusy={billingBusy}
+      billingNotice={billingNotice}
       userLabel={user?.email ?? user?.name ?? 'Signed in'}
       onCreateReport={() => {
         if (subscriptionIssueMessage(account)) return;
@@ -487,6 +535,11 @@ function AuthenticatedApp() {
       onRefresh={() => void refreshReports()}
       onUpgradeGrowth={() => void openUpgradeFlow()}
       onManageBilling={() => void openPortal()}
+      supportRequests={supportRequests}
+      supportLoading={supportLoading}
+      supportError={supportError}
+      supportSubmitting={supportSubmitting}
+      onSubmitSupportRequest={(category, subject, message) => void submitSupportRequest(category, subject, message)}
       onSignout={signout}
     />
   ) : (
@@ -574,12 +627,18 @@ function ReportsDashboard({
   reportsLoading,
   reportsError,
   billingBusy,
+  billingNotice,
   userLabel,
   onCreateReport,
   onOpenReport,
   onRefresh,
   onUpgradeGrowth,
   onManageBilling,
+  supportRequests,
+  supportLoading,
+  supportError,
+  supportSubmitting,
+  onSubmitSupportRequest,
   onSignout,
 }: {
   account: AccountSummary | null;
@@ -587,16 +646,38 @@ function ReportsDashboard({
   reportsLoading: boolean;
   reportsError: string | null;
   billingBusy: boolean;
+  billingNotice: { tone: 'ok' | 'warn' | 'bad'; text: string } | null;
   userLabel: string;
   onCreateReport: () => void;
   onOpenReport: (reportId: string) => void;
   onRefresh: () => void;
   onUpgradeGrowth: () => void;
   onManageBilling: () => void;
+  supportRequests: SupportRequestRecord[];
+  supportLoading: boolean;
+  supportError: string | null;
+  supportSubmitting: boolean;
+  onSubmitSupportRequest: (category: SupportRequestCategory, subject: string, message: string) => void;
   onSignout: () => void;
 }) {
   const accountIssue = subscriptionIssueMessage(account);
   const supportHref = supportEmailHref(userLabel, account, accountIssue);
+  const [supportCategory, setSupportCategory] = useState<SupportRequestCategory>('billing');
+  const [supportSubject, setSupportSubject] = useState('');
+  const [supportMessage, setSupportMessage] = useState(accountIssue ?? '');
+
+  useEffect(() => {
+    if (accountIssue) setSupportMessage((current) => current || accountIssue);
+  }, [accountIssue]);
+
+  const submitSupport = () => {
+    const subject = supportSubject.trim();
+    const message = supportMessage.trim();
+    if (!subject || !message) return;
+    onSubmitSupportRequest(supportCategory, subject, message);
+    setSupportSubject('');
+    setSupportMessage(accountIssue ?? '');
+  };
   return (
     <div className="app">
       <a className="skip-link" href="#main">
@@ -652,6 +733,33 @@ function ReportsDashboard({
                 <Icons.alert size={16} />
               </span>
               <span>{accountIssue}</span>
+            </div>
+          )}
+          {billingNotice && (
+            <div
+              role="status"
+              className="landing-alert"
+              style={{
+                marginBottom: 16,
+                color: billingNotice.tone === 'ok' ? 'var(--ok)' : billingNotice.tone === 'warn' ? 'var(--warn)' : 'var(--bad)',
+                borderColor:
+                  billingNotice.tone === 'ok'
+                    ? 'color-mix(in oklab, var(--ok) 24%, var(--border))'
+                    : billingNotice.tone === 'warn'
+                      ? 'color-mix(in oklab, var(--warn) 24%, var(--border))'
+                      : 'color-mix(in oklab, var(--bad) 24%, var(--border))',
+                background:
+                  billingNotice.tone === 'ok'
+                    ? 'var(--ok-bg)'
+                    : billingNotice.tone === 'warn'
+                      ? 'var(--warn-bg)'
+                      : 'var(--bad-bg)',
+              }}
+            >
+              <span style={{ marginTop: 1 }}>
+                {(billingNotice.tone === 'ok' ? Icons.checkCircle : Icons.alert)({ size: 16 })}
+              </span>
+              <span>{billingNotice.text}</span>
             </div>
           )}
           {reportsError && (
@@ -766,13 +874,94 @@ function ReportsDashboard({
                     <span className="faint">Reload account limits, report state, and billing-connected UI.</span>
                   </span>
                 </button>
-                <a className="support-link-row" href="#faq">
+                <a className="support-link-row" href="/#faq">
                   <span className="landing-icon">{Icons.doc({ size: 16 })}</span>
                   <span>
                     <strong>Review public FAQ</strong>
                     <span className="faint">Open the broader product FAQ for onboarding and workflow context.</span>
                   </span>
                 </a>
+              </div>
+            </div>
+
+            <div className="card">
+              <div className="eyebrow">Support Requests</div>
+              <div className="col" style={{ gap: 10, marginTop: 16 }}>
+                <div className="field">
+                  <label htmlFor="support-category">Category</label>
+                  <select
+                    id="support-category"
+                    className="input"
+                    value={supportCategory}
+                    onChange={(e) => setSupportCategory(e.target.value as SupportRequestCategory)}
+                  >
+                    <option value="billing">Billing</option>
+                    <option value="report">Report workflow</option>
+                    <option value="technical">Technical issue</option>
+                    <option value="general">General question</option>
+                  </select>
+                </div>
+                <div className="field">
+                  <label htmlFor="support-subject">Subject</label>
+                  <input
+                    id="support-subject"
+                    className="input"
+                    value={supportSubject}
+                    onChange={(e) => setSupportSubject(e.target.value)}
+                    placeholder="Short summary of the issue"
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="support-message">Message</label>
+                  <textarea
+                    id="support-message"
+                    className="textarea"
+                    value={supportMessage}
+                    onChange={(e) => setSupportMessage(e.target.value)}
+                    placeholder="Describe what happened and what you need help with."
+                  />
+                </div>
+                <div className="row wrap" style={{ gap: 10 }}>
+                  <button
+                    className="btn btn-primary"
+                    type="button"
+                    disabled={supportSubmitting || !supportSubject.trim() || !supportMessage.trim()}
+                    onClick={submitSupport}
+                  >
+                    {supportSubmitting ? 'Sending…' : 'Submit request'}
+                  </button>
+                  <a className="btn btn-ghost" href={supportHref}>
+                    Email instead
+                  </a>
+                </div>
+                {supportError && (
+                  <div role="alert" className="landing-alert">
+                    <span style={{ color: 'var(--bad)', marginTop: 1 }}>
+                      <Icons.alert size={16} />
+                    </span>
+                    <span>{supportError}</span>
+                  </div>
+                )}
+                {supportLoading ? (
+                  <p className="landing-card-copy">Loading recent requests…</p>
+                ) : supportRequests.length === 0 ? (
+                  <p className="landing-card-copy">No support requests yet. Submit one here and it will stay attached to your workspace.</p>
+                ) : (
+                  <div className="col" style={{ gap: 10 }}>
+                    {supportRequests.map((request) => (
+                      <article key={request.id} className="support-faq">
+                        <div className="row between wrap" style={{ gap: 10 }}>
+                          <strong>{request.subject}</strong>
+                          <span className="tag">{request.status}</span>
+                        </div>
+                        <p className="landing-card-copy" style={{ marginTop: 8 }}>{request.message}</p>
+                        <div className="faint" style={{ marginTop: 10, fontSize: 12.5 }}>
+                          {request.category} · {new Date(request.createdAt).toLocaleString()}
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 

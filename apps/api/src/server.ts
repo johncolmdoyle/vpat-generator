@@ -1,4 +1,4 @@
-import Fastify from 'fastify';
+import Fastify, { type FastifyReply } from 'fastify';
 import cors from '@fastify/cors';
 import rawBody from 'fastify-raw-body';
 import {
@@ -14,7 +14,9 @@ import type {
   CreateCheckoutRequest,
   CreatePortalRequest,
   CreateReportRequest,
+  CreateSupportRequestRequest,
   ExportRequest,
+  ListSupportRequestsResponse,
   ScanJobMessage,
   StartScanRequest,
   UpdateFindingRequest,
@@ -59,6 +61,23 @@ export function buildServer() {
     if (!account) return reply.code(404).send({ error: 'account not found' });
     return account;
   });
+
+  async function requireActiveSubscription(userId: string, reply: FastifyReply) {
+    const account = await store.getAccountSummary(userId);
+    if (!account) {
+      await reply.code(404).send({ error: 'account not found' });
+      return null;
+    }
+    if (!account.hasActiveSubscription) {
+      const message =
+        account.subscriptionStatus === 'past_due' || account.subscriptionStatus === 'unpaid'
+          ? 'billing issue: update your payment method in billing before creating or editing reports'
+          : 'active subscription required before creating or editing reports';
+      await reply.code(403).send({ error: message });
+      return null;
+    }
+    return account;
+  }
 
   app.post<{ Body: CreateCheckoutRequest }>(
     '/api/billing/checkout',
@@ -142,8 +161,8 @@ export function buildServer() {
   app.post<{ Body: CreateReportRequest }>('/api/reports', async (req, reply) => {
     const { domain, wcagTarget, scope } = req.body;
     if (!domain) return reply.code(400).send({ error: 'domain required' });
-    const account = await store.getAccountSummary(req.currentUser!.userId);
-    if (!account) return reply.code(404).send({ error: 'account not found' });
+    const account = await requireActiveSubscription(req.currentUser!.userId, reply);
+    if (!account) return;
     if (account.activeReportLimit !== null && account.activeReports >= account.activeReportLimit) {
       return reply
         .code(403)
@@ -172,8 +191,8 @@ export function buildServer() {
 
       const body = req.body ?? ({ authMode: 'public' } as StartScanRequest);
       const authMode = body.authMode === 'auth' ? 'auth' : 'public';
-      const account = await store.getAccountSummary(req.currentUser!.userId);
-      if (!account) return reply.code(404).send({ error: 'account not found' });
+      const account = await requireActiveSubscription(req.currentUser!.userId, reply);
+      if (!account) return;
       if (authMode === 'auth' && !account.canUseAuthenticatedScans) {
         return reply.code(403).send({ error: `authenticated scans require growth or enterprise plan` });
       }
@@ -210,13 +229,15 @@ export function buildServer() {
     async (req, reply) => {
       const reportRow = await store.getReportRow(req.params.id, req.currentUser!.userId);
       if (!reportRow) return reply.code(404).send({ error: 'report not found' });
+      if (!(await requireActiveSubscription(req.currentUser!.userId, reply))) return;
       await store.updateReport(req.params.id, req.body ?? {});
       const detail = await store.getReportDetail(req.params.id, req.currentUser!.userId);
       return detail!.report;
     },
   );
 
-  app.post<{ Params: { id: string } }>('/api/reports/:id/approve-all', async (req) => {
+  app.post<{ Params: { id: string } }>('/api/reports/:id/approve-all', async (req, reply) => {
+    if (!(await requireActiveSubscription(req.currentUser!.userId, reply))) return;
     await store.approveAll(req.currentUser!.userId, req.params.id);
     return { ok: true };
   });
@@ -226,6 +247,7 @@ export function buildServer() {
     async (req, reply) => {
       const detail = await store.getReportDetail(req.params.id, req.currentUser!.userId);
       if (!detail) return reply.code(404).send({ error: 'report not found' });
+      if (!(await requireActiveSubscription(req.currentUser!.userId, reply))) return;
       const format = req.body?.format ?? 'pdf';
 
       const artifact = await buildExport(format, detail);
@@ -288,16 +310,39 @@ export function buildServer() {
   app.patch<{ Params: { id: string }; Body: UpdateFindingRequest }>(
     '/api/findings/:id',
     async (req, reply) => {
+      if (!(await requireActiveSubscription(req.currentUser!.userId, reply))) return;
       const updated = await store.updateFinding(req.currentUser!.userId, req.params.id, req.body ?? {});
       if (!updated) return reply.code(404).send({ error: 'not found' });
       return updated;
     },
   );
 
-  app.post<{ Params: { id: string } }>('/api/findings/:id/approve', async (req) => {
+  app.post<{ Params: { id: string } }>('/api/findings/:id/approve', async (req, reply) => {
+    if (!(await requireActiveSubscription(req.currentUser!.userId, reply))) return;
     await store.approveFinding(req.currentUser!.userId, req.params.id);
     return { ok: true };
   });
+
+  app.get('/api/support-requests', async (req): Promise<ListSupportRequestsResponse> => {
+    return { requests: await store.listSupportRequests(req.currentUser!.userId) };
+  });
+
+  app.post<{ Body: CreateSupportRequestRequest }>(
+    '/api/support-requests',
+    async (req, reply) => {
+      const category = req.body?.category;
+      const subject = req.body?.subject?.trim() ?? '';
+      const message = req.body?.message?.trim() ?? '';
+      if (!category || !['billing', 'report', 'technical', 'general'].includes(category)) {
+        return reply.code(400).send({ error: 'valid support category required' });
+      }
+      if (!subject) return reply.code(400).send({ error: 'subject required' });
+      if (!message) return reply.code(400).send({ error: 'message required' });
+      return {
+        request: await store.createSupportRequest(req.currentUser!.userId, category, subject, message),
+      };
+    },
+  );
 
   return app;
 }

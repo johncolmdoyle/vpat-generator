@@ -10,6 +10,7 @@ import {
   type ReportRecord,
   type ScanRecord,
   type SectionId,
+  type SupportRequestRecord,
   type SubscriptionPlan,
 } from '@vpat/shared';
 
@@ -85,6 +86,15 @@ export interface UserRow {
   stripe_subscription_id: string | null;
   stripe_price_id: string | null;
   subscription_status: string | null;
+}
+
+export interface SupportRequestRow {
+  id: string;
+  category: SupportRequestRecord['category'];
+  status: SupportRequestRecord['status'];
+  subject: string;
+  message: string;
+  created_at: Date;
 }
 
 /** Normalize a DATE column (pg may hand back a Date or a 'YYYY-MM-DD' string). */
@@ -171,7 +181,7 @@ export function toAccountSummary(
     user.plan === 'starter' ? 2 : user.plan === 'growth' ? 15 : null;
   const hasActiveSubscription =
     Boolean(user.stripe_subscription_id) &&
-    ['active', 'trialing', 'past_due', 'unpaid'].includes(user.subscription_status ?? '');
+    ['active', 'trialing'].includes(user.subscription_status ?? '');
   return {
     plan: user.plan,
     activeReports,
@@ -180,6 +190,18 @@ export function toAccountSummary(
     billingEmail: user.billing_email ?? user.email,
     canManageBilling: Boolean(user.stripe_customer_id),
     hasActiveSubscription,
+    subscriptionStatus: user.subscription_status,
+  };
+}
+
+export function rowToSupportRequest(r: SupportRequestRow): SupportRequestRecord {
+  return {
+    id: r.id,
+    category: r.category,
+    status: r.status,
+    subject: r.subject,
+    message: r.message,
+    createdAt: r.created_at.toISOString(),
   };
 }
 

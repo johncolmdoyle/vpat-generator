@@ -7,10 +7,13 @@ import type {
   CreatePortalRequest,
   CreateReportRequest,
   CreateReportResponse,
+  CreateSupportRequestRequest,
+  CreateSupportRequestResponse,
   ExportFormat,
   ExportResponse,
   Finding,
   ListReportsResponse,
+  ListSupportRequestsResponse,
   ReportDetail,
   ReportRecord,
   ScanEvent,
@@ -95,6 +98,15 @@ export const api = {
   },
   listReports() {
     return req<ListReportsResponse>('/api/reports');
+  },
+  listSupportRequests() {
+    return req<ListSupportRequestsResponse>('/api/support-requests');
+  },
+  createSupportRequest(body: CreateSupportRequestRequest) {
+    return req<CreateSupportRequestResponse>('/api/support-requests', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
   },
   startScan(reportId: string, body: StartScanRequest) {
     return req<StartScanResponse>(`/api/reports/${reportId}/scan`, {

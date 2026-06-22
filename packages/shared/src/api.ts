@@ -68,6 +68,18 @@ export interface AccountSummary {
   billingEmail: string | null;
   canManageBilling: boolean;
   hasActiveSubscription: boolean;
+  subscriptionStatus: string | null;
+}
+
+export type SupportRequestCategory = 'billing' | 'report' | 'technical' | 'general';
+
+export interface SupportRequestRecord {
+  id: string;
+  category: SupportRequestCategory;
+  status: 'open' | 'closed';
+  subject: string;
+  message: string;
+  createdAt: string;
 }
 
 /* ---------- requests / responses ---------- */
@@ -83,6 +95,20 @@ export interface CreateReportResponse {
 
 export interface ListReportsResponse {
   reports: ReportRecord[];
+}
+
+export interface CreateSupportRequestRequest {
+  category: SupportRequestCategory;
+  subject: string;
+  message: string;
+}
+
+export interface CreateSupportRequestResponse {
+  request: SupportRequestRecord;
+}
+
+export interface ListSupportRequestsResponse {
+  requests: SupportRequestRecord[];
 }
 
 /** Step-2 credentials are write-only: stored in Secrets Manager, never returned. */

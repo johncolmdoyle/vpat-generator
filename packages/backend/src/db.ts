@@ -58,9 +58,21 @@ export async function migrate(): Promise<void> {
     ALTER TABLE users   ADD COLUMN IF NOT EXISTS stripe_price_id        TEXT;
     ALTER TABLE users   ADD COLUMN IF NOT EXISTS subscription_status    TEXT;
   `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS support_requests (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      category TEXT NOT NULL CHECK (category IN ('billing','report','technical','general')),
+      status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','closed')),
+      subject TEXT NOT NULL,
+      message TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
   await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_auth0_subject_idx ON users(auth0_subject)`);
   await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_stripe_customer_idx ON users(stripe_customer_id)`);
   await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_stripe_subscription_idx ON users(stripe_subscription_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS support_requests_user_created_idx ON support_requests(user_id, created_at DESC)`);
 }
 
 /** Block until Postgres accepts connections (compose ordering safety net). */
