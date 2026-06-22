@@ -21,7 +21,7 @@ import {
 } from '@vpat/shared';
 import { Icons } from './ui/icons.js';
 import { AUTH0_AUDIENCE, AUTH0_CLIENT_ID, AUTH0_DOMAIN, hasApi, hasAuth, hasPartialAuthConfig } from './config.js';
-import { api, setAccessTokenProvider } from './api/client.js';
+import { api, setAccessTokenProvider, setUserEmailProvider } from './api/client.js';
 import { DomainScreen } from './screens/DomainScreen.js';
 import { CredentialsScreen } from './screens/CredentialsScreen.js';
 import { ExaminingScreen } from './screens/ExaminingScreen.js';
@@ -267,6 +267,12 @@ function AuthenticatedApp() {
     );
     return () => setAccessTokenProvider(null);
   }, [getAccessTokenSilently]);
+
+  useEffect(() => {
+    if (!hasApi) return;
+    setUserEmailProvider(() => user?.email ?? null);
+    return () => setUserEmailProvider(null);
+  }, [user]);
 
   useEffect(() => {
     if (!hasApi || !isAuthenticated) return;

@@ -9,6 +9,12 @@ export interface AuthClaims {
   planHint: SubscriptionPlan | null;
 }
 
+function normalizeEmail(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') return null;
+  const email = value.trim().toLowerCase();
+  return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) ? email : null;
+}
+
 declare module 'fastify' {
   interface FastifyRequest {
     currentUser: {
@@ -39,7 +45,7 @@ function toClaims(payload: JWTPayload): AuthClaims | null {
       : null;
   return {
     sub: payload.sub,
-    email: typeof payload.email === 'string' ? payload.email : null,
+    email: normalizeEmail(typeof payload.email === 'string' ? payload.email : null),
     planHint,
   };
 }
@@ -68,7 +74,10 @@ export async function validateAccessToken(req: FastifyRequest, reply: FastifyRep
       await reply.code(401).send({ error: 'invalid token payload' });
       return null;
     }
-    return claims;
+    return {
+      ...claims,
+      email: claims.email ?? normalizeEmail(Array.isArray(req.headers['x-user-email']) ? req.headers['x-user-email'][0] : req.headers['x-user-email']),
+    };
   } catch {
     await reply.code(401).send({ error: 'invalid access token' });
     return null;

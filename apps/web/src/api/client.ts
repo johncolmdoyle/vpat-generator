@@ -22,9 +22,14 @@ import type {
 import { API_URL } from '../config.js';
 
 let accessTokenProvider: (() => Promise<string | null>) | null = null;
+let userEmailProvider: (() => string | null) | null = null;
 
 export function setAccessTokenProvider(provider: (() => Promise<string | null>) | null) {
   accessTokenProvider = provider;
+}
+
+export function setUserEmailProvider(provider: (() => string | null) | null) {
+  userEmailProvider = provider;
 }
 
 async function authHeaders(init?: HeadersInit): Promise<Headers> {
@@ -34,6 +39,10 @@ async function authHeaders(init?: HeadersInit): Promise<Headers> {
   if (accessTokenProvider) {
     const token = await accessTokenProvider();
     if (token) headers.set('Authorization', `Bearer ${token}`);
+  }
+  if (userEmailProvider) {
+    const email = userEmailProvider();
+    if (email) headers.set('X-User-Email', email);
   }
   return headers;
 }

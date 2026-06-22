@@ -44,20 +44,28 @@ export async function findOrCreateUser(
   planHint: SubscriptionPlan | null,
 ): Promise<string> {
   const fallbackEmail = `${auth0Sub.replace(/[^a-zA-Z0-9._-]/g, '_')}@auth0.local`;
+  const incomingEmail = email?.trim().toLowerCase() ?? fallbackEmail;
   const plan = derivePlan(email, planHint);
   const row = await queryOne<{ id: string }>(
     `INSERT INTO users (org_id, auth0_subject, email, plan)
      VALUES ($1, $2, $3, $4)
      ON CONFLICT (auth0_subject)
      DO UPDATE SET
-       email = EXCLUDED.email,
-       billing_email = COALESCE(users.billing_email, EXCLUDED.email),
+       email = CASE
+         WHEN EXCLUDED.email LIKE '%@auth0.local' AND users.email NOT LIKE '%@auth0.local' THEN users.email
+         ELSE EXCLUDED.email
+       END,
+       billing_email = CASE
+         WHEN users.billing_email IS NOT NULL THEN users.billing_email
+         WHEN EXCLUDED.email LIKE '%@auth0.local' AND users.email NOT LIKE '%@auth0.local' THEN users.email
+         ELSE EXCLUDED.email
+       END,
        plan = CASE
          WHEN users.stripe_subscription_id IS NULL THEN EXCLUDED.plan
          ELSE users.plan
        END
      RETURNING id`,
-    [env.demoOrgId, auth0Sub, email ?? fallbackEmail, plan],
+    [env.demoOrgId, auth0Sub, incomingEmail, plan],
   );
   return row!.id;
 }

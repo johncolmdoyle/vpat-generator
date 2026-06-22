@@ -16,6 +16,7 @@ createRoot(rootEl).render(
         clientId={AUTH0_CLIENT_ID}
         authorizationParams={{
           redirect_uri: window.location.origin,
+          scope: 'openid profile email',
           ...(AUTH0_AUDIENCE ? { audience: AUTH0_AUDIENCE } : {}),
         }}
       >
