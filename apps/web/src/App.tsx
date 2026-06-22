@@ -114,11 +114,61 @@ const PRICING_TIERS: readonly PricingTier[] = [
 ] as const;
 
 const PENDING_CHECKOUT_STORAGE_KEY = 'accessops.pendingCheckoutPlan';
+const SUPPORT_EMAIL = 'support@vpatbuilder.com';
+
+const SUPPORT_TRACKS = [
+  {
+    icon: Icons.shield,
+    title: 'Account and billing',
+    body: 'Fix subscription issues, update the billing contact, and reopen checkout or customer portal flows without leaving the workspace.',
+  },
+  {
+    icon: Icons.doc,
+    title: 'Report workflow',
+    body: 'Get help with scans, draft review, evaluator details, and exporting VPAT-based accessibility reports.',
+  },
+  {
+    icon: Icons.sparkle,
+    title: 'Product guidance',
+    body: 'Understand what the platform can automate, where human review is still required, and how to prepare for buyer requests.',
+  },
+] as const;
+
+const SUPPORT_FAQS = [
+  {
+    q: 'Why can’t I create a report yet?',
+    a: 'The workspace requires an active subscription before a team can create or edit VPAT reports. If billing is still incomplete, use the billing actions in this support center first.',
+  },
+  {
+    q: 'What should I include when I contact support?',
+    a: 'Send your account email, the report domain you were working on, and the exact error message or screenshot if you have one. That helps us trace the issue much faster.',
+  },
+  {
+    q: 'Can support help with VPAT content decisions?',
+    a: 'Support can help you navigate the workflow and product behavior. Final conformance claims and evaluator attestation should still be reviewed by your accessibility lead or assessor.',
+  },
+] as const;
 
 function subscriptionIssueMessage(account: AccountSummary | null | undefined): string | null {
   if (!account) return null;
   if (account.hasActiveSubscription) return null;
   return `Your account does not have an active subscription yet. Complete billing setup before creating or editing VPAT reports.`;
+}
+
+function supportEmailHref(userLabel: string, account: AccountSummary | null, issue: string | null) {
+  const subject = issue ? 'AccessOps account issue' : 'AccessOps support request';
+  const lines = [
+    'Hi AccessOps support,',
+    '',
+    'I need help with:',
+    issue ?? 'Describe the issue here.',
+    '',
+    `Account: ${userLabel}`,
+    `Plan: ${account?.plan ?? 'unknown'}`,
+    '',
+    'Relevant details:',
+  ];
+  return `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(lines.join('\n'))}`;
 }
 
 const FAQS = [
@@ -546,6 +596,7 @@ function ReportsDashboard({
   onSignout: () => void;
 }) {
   const accountIssue = subscriptionIssueMessage(account);
+  const supportHref = supportEmailHref(userLabel, account, accountIssue);
   return (
     <div className="app">
       <a className="skip-link" href="#main">
@@ -570,6 +621,9 @@ function ReportsDashboard({
             {billingBusy ? 'Opening billing…' : 'Manage billing'}
           </button>
         )}
+        <a className="btn btn-ghost btn-sm" href="#support-center">
+          Support center
+        </a>
         <span className="tag" aria-label={`Signed in as ${userLabel}`}>
           {userLabel}
         </span>
@@ -646,6 +700,94 @@ function ReportsDashboard({
               ))}
             </div>
           )}
+        </section>
+
+        <section className="landing-section" id="support-center" aria-labelledby="support-center-title">
+          <div className="landing-section-head" style={{ marginBottom: 18 }}>
+            <div className="eyebrow">Support Center</div>
+            <h2 className="landing-section-title" id="support-center-title">Get help with billing, reports, and workspace setup.</h2>
+            <p className="lead">Use the billing tools below, review the quick answers, or contact support directly with your account context prefilled.</p>
+          </div>
+
+          <div className="support-grid">
+            <div className="card support-hero-card">
+              <div className="row between wrap" style={{ gap: 12, alignItems: 'flex-start' }}>
+                <div className="col" style={{ gap: 10, alignItems: 'flex-start' }}>
+                  <span className="badge b-ok">Workspace support</span>
+                  <h3 className="landing-card-title" style={{ marginTop: 0 }}>Fast path for account issues</h3>
+                  <p className="landing-card-copy">
+                    {accountIssue ?? 'Your account is in good standing. You can still use this area for billing questions, workflow help, and support contact details.'}
+                  </p>
+                </div>
+                <span className="tag">{account?.billingEmail ?? userLabel}</span>
+              </div>
+              <div className="row wrap" style={{ gap: 10, marginTop: 18 }}>
+                {account?.canManageBilling ? (
+                  <button className="btn btn-primary" onClick={onManageBilling} disabled={billingBusy}>
+                    {billingBusy ? 'Opening billing…' : 'Open billing portal'}
+                  </button>
+                ) : (
+                  <button className="btn btn-primary" onClick={onUpgradeGrowth} disabled={billingBusy}>
+                    {billingBusy ? 'Opening billing…' : 'Complete billing setup'}
+                  </button>
+                )}
+                <a className="btn btn-ghost" href={supportHref}>
+                  Email support
+                </a>
+              </div>
+            </div>
+
+            <div className="support-card-grid">
+              {SUPPORT_TRACKS.map((item) => (
+                <article key={item.title} className="card support-mini-card">
+                  <span className="landing-icon">{item.icon({ size: 18 })}</span>
+                  <h3 className="landing-card-title">{item.title}</h3>
+                  <p className="landing-card-copy">{item.body}</p>
+                </article>
+              ))}
+            </div>
+          </div>
+
+          <div className="support-grid support-grid-secondary" style={{ marginTop: 14 }}>
+            <div className="card">
+              <div className="eyebrow">Quick Actions</div>
+              <div className="col" style={{ gap: 12, marginTop: 16 }}>
+                <a className="support-link-row" href={supportHref}>
+                  <span className="landing-icon">{Icons.arrowR({ size: 16 })}</span>
+                  <span>
+                    <strong>Email {SUPPORT_EMAIL}</strong>
+                    <span className="faint">Share account, billing, or report issues with prefilled context.</span>
+                  </span>
+                </a>
+                <button className="support-link-row" onClick={onRefresh} disabled={reportsLoading} type="button">
+                  <span className="landing-icon">{Icons.clock({ size: 16 })}</span>
+                  <span>
+                    <strong>{reportsLoading ? 'Refreshing workspace…' : 'Refresh workspace data'}</strong>
+                    <span className="faint">Reload account limits, report state, and billing-connected UI.</span>
+                  </span>
+                </button>
+                <a className="support-link-row" href="#faq">
+                  <span className="landing-icon">{Icons.doc({ size: 16 })}</span>
+                  <span>
+                    <strong>Review public FAQ</strong>
+                    <span className="faint">Open the broader product FAQ for onboarding and workflow context.</span>
+                  </span>
+                </a>
+              </div>
+            </div>
+
+            <div className="card">
+              <div className="eyebrow">Common Questions</div>
+              <div className="col" style={{ gap: 10, marginTop: 16 }}>
+                {SUPPORT_FAQS.map((item, index) => (
+                  <details key={item.q} className="support-faq" open={Boolean(accountIssue) && index === 0}>
+                    <summary className="landing-faq-summary">{item.q}</summary>
+                    <p className="landing-card-copy" style={{ marginTop: 10 }}>{item.a}</p>
+                  </details>
+                ))}
+              </div>
+            </div>
+          </div>
         </section>
       </main>
     </div>

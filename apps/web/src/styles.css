@@ -755,6 +755,59 @@ h1.title {
 .landing-feature-card {
   min-height: 220px;
 }
+.support-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 14px;
+}
+.support-grid-secondary {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.support-hero-card {
+  padding: clamp(22px, 3vw, 30px);
+  background:
+    linear-gradient(145deg, color-mix(in oklab, var(--accent) 5%, var(--surface)) 0%, var(--surface) 58%, color-mix(in oklab, var(--ok) 6%, var(--surface)) 100%);
+}
+.support-card-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+}
+.support-mini-card {
+  min-height: 0;
+}
+.support-link-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  width: 100%;
+  padding: 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: color-mix(in oklab, var(--surface-2) 45%, var(--surface));
+  color: inherit;
+  text-align: left;
+}
+.support-link-row:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+}
+.support-link-row strong {
+  display: block;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+.support-link-row .faint {
+  display: block;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.support-faq {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 14px 16px;
+  background: color-mix(in oklab, var(--surface-2) 35%, var(--surface));
+}
 .landing-card-title {
   font-size: 17px;
   line-height: 1.2;
@@ -816,7 +869,9 @@ h1.title {
   .landing-grid,
   .landing-cards,
   .landing-split,
-  .landing-cta {
+  .landing-cta,
+  .support-grid,
+  .support-grid-secondary {
     grid-template-columns: 1fr;
   }
   .landing-title {
