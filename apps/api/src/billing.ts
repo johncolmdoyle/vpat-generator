@@ -4,8 +4,9 @@ import type { AccountSummary, SelfServePlan, SubscriptionPlan } from '@vpat/shar
 import * as store from './store.js';
 
 const ACTIVE_STATUSES = new Set<Stripe.Subscription.Status>(['active', 'trialing', 'past_due', 'unpaid']);
+const hasValidStripeSecretKey = env.stripe.secretKey.startsWith('sk_');
 
-const stripe = env.stripe.secretKey
+const stripe = hasValidStripeSecretKey
   ? new Stripe(env.stripe.secretKey, { apiVersion: '2026-02-25.clover' as Stripe.LatestApiVersion })
   : null;
 
@@ -21,7 +22,9 @@ const PLAN_BY_PRICE = new Map<string, SelfServePlan>(
 );
 
 function requireStripe(): Stripe {
-  if (!stripe) throw new Error('Stripe is not configured. Set STRIPE_SECRET_KEY and the price ids.');
+  if (!stripe) {
+    throw new Error('Stripe is not configured. Set STRIPE_SECRET_KEY to a secret key starting with sk_ and provide the price ids.');
+  }
   return stripe;
 }
 

@@ -18,6 +18,16 @@ require_cmd() {
   }
 }
 
+require_prefix() {
+  local key="$1"
+  local prefix="$2"
+  local value="${!key:-}"
+  if [[ "$value" != "$prefix"* ]]; then
+    echo "Invalid $key: expected value starting with $prefix" >&2
+    exit 1
+  fi
+}
+
 for cmd in aws docker node terraform curl git; do
   require_cmd "$cmd"
 done
@@ -48,6 +58,8 @@ unset AWS_SECURITY_TOKEN
 : "${VITE_AUTH0_DOMAIN:?VITE_AUTH0_DOMAIN must be set in .env}"
 : "${VITE_AUTH0_CLIENT_ID:?VITE_AUTH0_CLIENT_ID must be set in .env}"
 : "${VITE_AUTH0_AUDIENCE:?VITE_AUTH0_AUDIENCE must be set in .env}"
+: "${STRIPE_SECRET_KEY:?STRIPE_SECRET_KEY must be set in .env}"
+require_prefix STRIPE_SECRET_KEY "sk_"
 
 ADMIN_IP="$(curl -fsS https://checkip.amazonaws.com | tr -d '\n')"
 ADMIN_CIDR="${ADMIN_IP}/32"
