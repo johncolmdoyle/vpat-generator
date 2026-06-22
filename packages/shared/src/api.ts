@@ -80,6 +80,10 @@ export interface CreateReportResponse {
   reportId: string;
 }
 
+export interface ListReportsResponse {
+  reports: ReportRecord[];
+}
+
 /** Step-2 credentials are write-only: stored in Secrets Manager, never returned. */
 export interface StartScanRequest {
   authMode: AuthMode;

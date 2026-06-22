@@ -10,6 +10,7 @@ import type {
   ExportFormat,
   ExportResponse,
   Finding,
+  ListReportsResponse,
   ReportDetail,
   ReportRecord,
   ScanEvent,
@@ -74,6 +75,9 @@ export const api = {
   },
   createReport(body: CreateReportRequest) {
     return req<CreateReportResponse>('/api/reports', { method: 'POST', body: JSON.stringify(body) });
+  },
+  listReports() {
+    return req<ListReportsResponse>('/api/reports');
   },
   startScan(reportId: string, body: StartScanRequest) {
     return req<StartScanResponse>(`/api/reports/${reportId}/scan`, {

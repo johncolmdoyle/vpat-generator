@@ -12,7 +12,9 @@ import {
   type CrawlScope,
   type Finding,
   type PageInfo,
+  type ReportDetail,
   type ReportMeta,
+  type ReportRecord,
   type SelfServePlan,
   type WcagTarget,
   type WizardForm,
@@ -177,6 +179,11 @@ function AuthenticatedApp() {
   const [account, setAccount] = useState<AccountSummary | null>(null);
   const [billingBusy, setBillingBusy] = useState(false);
   const [pendingCheckoutPlan, setPendingCheckoutPlan] = useState<SelfServePlan | null>(() => readPendingCheckoutPlan());
+  const [reports, setReports] = useState<ReportRecord[]>([]);
+  const [reportsLoading, setReportsLoading] = useState(false);
+  const [reportsError, setReportsError] = useState<string | null>(null);
+  const [activeDetail, setActiveDetail] = useState<ReportDetail | null>(null);
+  const [activeView, setActiveView] = useState<'dashboard' | 'wizard'>('dashboard');
   const checkoutLaunchStarted = useRef(false);
 
   const setPendingCheckout = (plan: SelfServePlan | null) => {
@@ -201,6 +208,19 @@ function AuthenticatedApp() {
       .getAccount()
       .then(setAccount)
       .catch((e) => console.error('getAccount failed', e));
+
+  const refreshReports = () => {
+    setReportsLoading(true);
+    setReportsError(null);
+    return api
+      .listReports()
+      .then((res) => setReports(res.reports))
+      .catch((e) => {
+        console.error('listReports failed', e);
+        setReportsError(e instanceof Error ? e.message : 'Could not load reports');
+      })
+      .finally(() => setReportsLoading(false));
+  };
 
   const redirectToUrl = (url: string) => {
     window.location.assign(url);
@@ -243,6 +263,7 @@ function AuthenticatedApp() {
   useEffect(() => {
     if (!hasApi) return;
     void refreshAccount();
+    void refreshReports();
   }, []);
 
   useEffect(() => {
@@ -296,6 +317,17 @@ function AuthenticatedApp() {
       })
       .finally(() => setBillingBusy(false));
   }, [account, billingBusy, isAuthenticated, pendingCheckoutPlan]);
+
+  const openReport = async (reportId: string) => {
+    try {
+      const detail = await api.getReport(reportId);
+      setActiveDetail(detail);
+      setActiveView('wizard');
+    } catch (e) {
+      console.error('openReport failed', e);
+      setReportsError(e instanceof Error ? e.message : 'Could not open report');
+    }
+  };
 
   if (isLoading) {
     return (
@@ -368,13 +400,48 @@ function AuthenticatedApp() {
     );
   }
 
-  return (
-    <WizardApp
+  return activeView === 'dashboard' ? (
+    <ReportsDashboard
       account={account}
-      onAccountChange={setAccount}
+      reports={reports}
+      reportsLoading={reportsLoading}
+      reportsError={reportsError}
+      billingBusy={billingBusy}
+      userLabel={user?.email ?? user?.name ?? 'Signed in'}
+      onCreateReport={() => {
+        setActiveDetail(null);
+        setActiveView('wizard');
+      }}
+      onOpenReport={(reportId) => void openReport(reportId)}
+      onRefresh={() => void refreshReports()}
       onUpgradeGrowth={() => void startCheckout('growth')}
+      onManageBilling={() => void openPortal()}
+      onSignout={signout}
+    />
+  ) : (
+    <WizardApp
+      key={activeDetail?.report.id ?? 'new-report'}
+      account={account}
+      initialDetail={activeDetail}
+      onAccountChange={(next) => {
+        setAccount(next);
+        void refreshReports();
+      }}
+      onUpgradeGrowth={() => void startCheckout('growth')}
+      onBackToReports={() => {
+        setActiveDetail(null);
+        setActiveView('dashboard');
+        void refreshReports();
+      }}
       accountControls={
         <div className="row" style={{ gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <button className="btn btn-ghost btn-sm" onClick={() => {
+            setActiveDetail(null);
+            setActiveView('dashboard');
+            void refreshReports();
+          }}>
+            Reports
+          </button>
           {account && (
             <span className="tag">
               {account.plan} · {account.activeReports}
@@ -427,6 +494,131 @@ function AuthConfigError() {
         </div>
       </div>
     </AuthScreenFrame>
+  );
+}
+
+function ReportsDashboard({
+  account,
+  reports,
+  reportsLoading,
+  reportsError,
+  billingBusy,
+  userLabel,
+  onCreateReport,
+  onOpenReport,
+  onRefresh,
+  onUpgradeGrowth,
+  onManageBilling,
+  onSignout,
+}: {
+  account: AccountSummary | null;
+  reports: ReportRecord[];
+  reportsLoading: boolean;
+  reportsError: string | null;
+  billingBusy: boolean;
+  userLabel: string;
+  onCreateReport: () => void;
+  onOpenReport: (reportId: string) => void;
+  onRefresh: () => void;
+  onUpgradeGrowth: () => void;
+  onManageBilling: () => void;
+  onSignout: () => void;
+}) {
+  return (
+    <div className="app">
+      <a className="skip-link" href="#main">
+        Skip to main content
+      </a>
+      <header className="topbar">
+        <Brand />
+        <span className="spacer" />
+        {account && (
+          <span className="tag">
+            {account.plan} · {account.activeReports}
+            {account.activeReportLimit !== null ? `/${account.activeReportLimit}` : ''} active
+          </span>
+        )}
+        {account?.plan === 'starter' && (
+          <button className="btn btn-primary btn-sm" onClick={onUpgradeGrowth} disabled={billingBusy}>
+            {billingBusy ? 'Opening billing…' : 'Upgrade'}
+          </button>
+        )}
+        {account?.canManageBilling && (
+          <button className="btn btn-ghost btn-sm" onClick={onManageBilling} disabled={billingBusy}>
+            {billingBusy ? 'Opening billing…' : 'Manage billing'}
+          </button>
+        )}
+        <span className="tag" aria-label={`Signed in as ${userLabel}`}>
+          {userLabel}
+        </span>
+        <button className="btn btn-quiet btn-sm" onClick={onSignout}>
+          Log out
+        </button>
+      </header>
+      <main className="main" id="main">
+        <section className="landing-section" style={{ paddingTop: 8 }}>
+          <div className="landing-section-head" style={{ marginBottom: 18 }}>
+            <div className="eyebrow">Workspace</div>
+            <h1 className="landing-section-title">Your VPAT reports</h1>
+            <p className="lead">Open an existing report to keep working, or start a new draft.</p>
+          </div>
+          <div className="row wrap" style={{ gap: 10, marginBottom: 18 }}>
+            <button className="btn btn-primary" onClick={onCreateReport}>
+              New report
+            </button>
+            <button className="btn btn-ghost" onClick={onRefresh} disabled={reportsLoading}>
+              {reportsLoading ? 'Refreshing…' : 'Refresh'}
+            </button>
+          </div>
+          {reportsError && (
+            <div role="alert" className="landing-alert" style={{ marginBottom: 16 }}>
+              <span style={{ color: 'var(--bad)', marginTop: 1 }}>
+                <Icons.alert size={16} />
+              </span>
+              <span>{reportsError}</span>
+            </div>
+          )}
+          {reports.length === 0 ? (
+            <div className="card">
+              <div className="eyebrow">No Reports Yet</div>
+              <h2 className="landing-section-title" style={{ marginTop: 12 }}>
+                Start your first accessibility report.
+              </h2>
+              <p className="lead" style={{ marginTop: 10 }}>
+                Create a new report to begin the scan, draft, review, and export workflow.
+              </p>
+            </div>
+          ) : (
+            <div className="landing-cards">
+              {reports.map((report) => (
+                <article key={report.id} className="card landing-feature-card">
+                  <div className="row between" style={{ alignItems: 'flex-start', gap: 12 }}>
+                    <div>
+                      <div className="eyebrow">{report.status}</div>
+                      <h3 className="landing-card-title" style={{ marginTop: 8 }}>
+                        {report.productName || report.domain}
+                      </h3>
+                      <p className="landing-card-copy" style={{ marginBottom: 6 }}>{report.domain}</p>
+                    </div>
+                    <span className="tag">{report.wcagTarget}</span>
+                  </div>
+                  <div className="col" style={{ gap: 8, marginTop: 10, fontSize: 13.5 }}>
+                    <span className="faint">Scope: {report.scope}</span>
+                    <span className="faint">Created: {new Date(report.createdAt).toLocaleDateString()}</span>
+                    {report.finalizedAt && <span className="faint">Exported: {new Date(report.finalizedAt).toLocaleDateString()}</span>}
+                  </div>
+                  <div className="row wrap" style={{ gap: 10, marginTop: 18 }}>
+                    <button className="btn btn-primary btn-sm" onClick={() => onOpenReport(report.id)}>
+                      Open
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      </main>
+    </div>
   );
 }
 
@@ -922,13 +1114,17 @@ function LandingCta({
 
 function WizardApp({
   account,
+  initialDetail,
   onAccountChange,
   onUpgradeGrowth,
+  onBackToReports,
   accountControls,
 }: {
   account?: AccountSummary | null;
+  initialDetail?: ReportDetail | null;
   onAccountChange?: (account: AccountSummary) => void;
   onUpgradeGrowth?: (() => void) | null;
+  onBackToReports?: (() => void) | null;
   accountControls?: ReactNode;
 }) {
   const [step, setStep] = useState(0);
@@ -944,6 +1140,49 @@ function WizardApp({
   // Holds the in-flight createReport so startScan can await it without a race.
   const reportPromise = useRef<Promise<string> | null>(null);
 
+  useEffect(() => {
+    if (!initialDetail) return;
+
+    const { report, scan, findings: detailFindings, pages: detailPages } = initialDetail;
+    setForm({
+      domain: report.domain,
+      level: report.wcagTarget,
+      scope: report.scope,
+      authMode: scan?.authMode ?? 'public',
+    });
+    setFindings(detailFindings.length ? detailFindings : initFindings());
+    setMeta({
+      productName: report.productName ?? '',
+      productVersion: report.productVersion ?? '',
+      vendorName: report.vendorName ?? '',
+      contactEmail: report.contactEmail ?? '',
+      productDescription: report.productDescription ?? '',
+      evaluationMethods: report.evaluationMethods ?? '',
+      assistiveTech: report.assistiveTech,
+      testEnvironments: report.testEnvironments,
+      evaluatorName: report.evaluatorName ?? '',
+      evaluatorOrg: report.evaluatorOrg ?? '',
+      evaluationStart: report.evaluationStart ?? '',
+      evaluationEnd: report.evaluationEnd ?? '',
+      notes: report.notes ?? '',
+    });
+    setPages(detailPages);
+    setReportId(report.id);
+    setScanId(scan?.id);
+    reportPromise.current = Promise.resolve(report.id);
+    setFlowError(null);
+
+    let nextStep = 1;
+    if (report.status === 'final') nextStep = 6;
+    else if (report.status === 'review') nextStep = 4;
+    else if (scan?.state === 'drafting') nextStep = 3;
+    else if (scan?.state === 'queued' || scan?.state === 'running') nextStep = 2;
+    else if (scan?.state === 'done') nextStep = 4;
+
+    setStep(nextStep);
+    setReached(nextStep);
+  }, [initialDetail]);
+
   const go = (n: number) => {
     setStep(n);
     setReached((r) => Math.max(r, n));
@@ -951,6 +1190,10 @@ function WizardApp({
   };
   const set = (patch: Partial<WizardForm>) => setForm((f) => ({ ...f, ...patch }));
   const restart = () => {
+    if (onBackToReports) {
+      onBackToReports();
+      return;
+    }
     setForm({});
     setFindings(initFindings());
     setMeta(emptyReportMeta());
