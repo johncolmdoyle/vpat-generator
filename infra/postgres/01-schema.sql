@@ -128,6 +128,25 @@ CREATE TABLE exports (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE support_requests (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  category TEXT NOT NULL CHECK (category IN ('billing','report','technical','general')),
+  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','closed')),
+  subject TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX support_requests_user_created_idx ON support_requests(user_id, created_at DESC);
+
+CREATE TABLE support_request_messages (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  support_request_id UUID NOT NULL REFERENCES support_requests(id) ON DELETE CASCADE,
+  author_role TEXT NOT NULL CHECK (author_role IN ('customer','support')),
+  body TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX support_request_messages_request_created_idx ON support_request_messages(support_request_id, created_at ASC);
+
 -- Seed the demo tenant.
 INSERT INTO organizations (id, name)
   VALUES ('00000000-0000-0000-0000-000000000001', 'Demo Org');

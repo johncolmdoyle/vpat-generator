@@ -65,7 +65,16 @@ export async function migrate(): Promise<void> {
       category TEXT NOT NULL CHECK (category IN ('billing','report','technical','general')),
       status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','closed')),
       subject TEXT NOT NULL,
-      message TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+  await pool.query(`ALTER TABLE support_requests DROP COLUMN IF EXISTS message`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS support_request_messages (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      support_request_id UUID NOT NULL REFERENCES support_requests(id) ON DELETE CASCADE,
+      author_role TEXT NOT NULL CHECK (author_role IN ('customer','support')),
+      body TEXT NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `);
@@ -73,6 +82,7 @@ export async function migrate(): Promise<void> {
   await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_stripe_customer_idx ON users(stripe_customer_id)`);
   await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_stripe_subscription_idx ON users(stripe_subscription_id)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS support_requests_user_created_idx ON support_requests(user_id, created_at DESC)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS support_request_messages_request_created_idx ON support_request_messages(support_request_id, created_at ASC)`);
 }
 
 /** Block until Postgres accepts connections (compose ordering safety net). */

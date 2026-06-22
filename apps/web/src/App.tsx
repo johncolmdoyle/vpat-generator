@@ -17,6 +17,7 @@ import {
   type ReportRecord,
   type SelfServePlan,
   type SupportRequestCategory,
+  type SupportRequestDetail,
   type SupportRequestRecord,
   type WcagTarget,
   type WizardForm,
@@ -247,6 +248,9 @@ function AuthenticatedApp() {
   const [supportLoading, setSupportLoading] = useState(false);
   const [supportError, setSupportError] = useState<string | null>(null);
   const [supportSubmitting, setSupportSubmitting] = useState(false);
+  const [activeSupportRequest, setActiveSupportRequest] = useState<SupportRequestDetail | null>(null);
+  const [supportThreadLoading, setSupportThreadLoading] = useState(false);
+  const [supportThreadSubmitting, setSupportThreadSubmitting] = useState(false);
   const [billingNotice, setBillingNotice] = useState<{ tone: 'ok' | 'warn' | 'bad'; text: string } | null>(null);
   const [activeDetail, setActiveDetail] = useState<ReportDetail | null>(null);
   const [activeView, setActiveView] = useState<'dashboard' | 'wizard'>('dashboard');
@@ -299,6 +303,20 @@ function AuthenticatedApp() {
         setSupportError(e instanceof Error ? e.message : 'Could not load support requests');
       })
       .finally(() => setSupportLoading(false));
+  };
+
+  const openSupportRequest = async (requestId: string) => {
+    setSupportThreadLoading(true);
+    setSupportError(null);
+    try {
+      const detail = await api.getSupportRequest(requestId);
+      setActiveSupportRequest(detail);
+    } catch (e) {
+      console.error('getSupportRequest failed', e);
+      setSupportError(e instanceof Error ? e.message : 'Could not load support request');
+    } finally {
+      setSupportThreadLoading(false);
+    }
   };
 
   const redirectToUrl = (url: string) => {
@@ -426,12 +444,33 @@ function AuthenticatedApp() {
     try {
       const res = await api.createSupportRequest({ category, subject, message });
       setSupportRequests((current) => [res.request, ...current].slice(0, 10));
+      const detail = await api.getSupportRequest(res.request.id);
+      setActiveSupportRequest(detail);
     } catch (e) {
       console.error('createSupportRequest failed', e);
       setSupportError(e instanceof Error ? e.message : 'Could not submit support request');
       throw e;
     } finally {
       setSupportSubmitting(false);
+    }
+  };
+
+  const submitSupportMessage = async (requestId: string, body: string) => {
+    setSupportThreadSubmitting(true);
+    setSupportError(null);
+    try {
+      const res = await api.createSupportMessage(requestId, { body });
+      setActiveSupportRequest((current) =>
+        current && current.request.id === requestId
+          ? { ...current, messages: [...current.messages, res.message] }
+          : current,
+      );
+    } catch (e) {
+      console.error('createSupportMessage failed', e);
+      setSupportError(e instanceof Error ? e.message : 'Could not add support message');
+      throw e;
+    } finally {
+      setSupportThreadSubmitting(false);
     }
   };
 
@@ -539,7 +578,13 @@ function AuthenticatedApp() {
       supportLoading={supportLoading}
       supportError={supportError}
       supportSubmitting={supportSubmitting}
+      activeSupportRequest={activeSupportRequest}
+      supportThreadLoading={supportThreadLoading}
+      supportThreadSubmitting={supportThreadSubmitting}
+      onOpenSupportRequest={(requestId) => void openSupportRequest(requestId)}
+      onCloseSupportRequest={() => setActiveSupportRequest(null)}
       onSubmitSupportRequest={(category, subject, message) => void submitSupportRequest(category, subject, message)}
+      onSubmitSupportMessage={(requestId, body) => void submitSupportMessage(requestId, body)}
       onSignout={signout}
     />
   ) : (
@@ -638,7 +683,13 @@ function ReportsDashboard({
   supportLoading,
   supportError,
   supportSubmitting,
+  activeSupportRequest,
+  supportThreadLoading,
+  supportThreadSubmitting,
+  onOpenSupportRequest,
+  onCloseSupportRequest,
   onSubmitSupportRequest,
+  onSubmitSupportMessage,
   onSignout,
 }: {
   account: AccountSummary | null;
@@ -657,7 +708,13 @@ function ReportsDashboard({
   supportLoading: boolean;
   supportError: string | null;
   supportSubmitting: boolean;
+  activeSupportRequest: SupportRequestDetail | null;
+  supportThreadLoading: boolean;
+  supportThreadSubmitting: boolean;
+  onOpenSupportRequest: (requestId: string) => void;
+  onCloseSupportRequest: () => void;
   onSubmitSupportRequest: (category: SupportRequestCategory, subject: string, message: string) => void;
+  onSubmitSupportMessage: (requestId: string, body: string) => void;
   onSignout: () => void;
 }) {
   const accountIssue = subscriptionIssueMessage(account);
@@ -665,6 +722,7 @@ function ReportsDashboard({
   const [supportCategory, setSupportCategory] = useState<SupportRequestCategory>('billing');
   const [supportSubject, setSupportSubject] = useState('');
   const [supportMessage, setSupportMessage] = useState(accountIssue ?? '');
+  const [supportReply, setSupportReply] = useState('');
 
   useEffect(() => {
     if (accountIssue) setSupportMessage((current) => current || accountIssue);
@@ -677,6 +735,12 @@ function ReportsDashboard({
     onSubmitSupportRequest(supportCategory, subject, message);
     setSupportSubject('');
     setSupportMessage(accountIssue ?? '');
+  };
+
+  const submitSupportReply = () => {
+    if (!activeSupportRequest || !supportReply.trim()) return;
+    onSubmitSupportMessage(activeSupportRequest.request.id, supportReply.trim());
+    setSupportReply('');
   };
   return (
     <div className="app">
@@ -692,12 +756,16 @@ function ReportsDashboard({
             {account.activeReportLimit !== null ? `/${account.activeReportLimit}` : ''} active
           </span>
         )}
-        {account?.plan === 'starter' && (
+        {accountIssue ? (
+          <button className="btn btn-danger btn-sm" onClick={onManageBilling} disabled={billingBusy}>
+            {billingBusy ? 'Opening billing…' : 'Manage billing'}
+          </button>
+        ) : account?.plan === 'starter' ? (
           <button className="btn btn-primary btn-sm" onClick={onUpgradeGrowth} disabled={billingBusy}>
             {billingBusy ? 'Opening billing…' : 'Upgrade'}
           </button>
-        )}
-        {account?.canManageBilling && (
+        ) : null}
+        {account?.canManageBilling && !accountIssue && (
           <button className="btn btn-ghost btn-sm" onClick={onManageBilling} disabled={billingBusy}>
             {billingBusy ? 'Opening billing…' : 'Manage billing'}
           </button>
@@ -720,8 +788,12 @@ function ReportsDashboard({
             <p className="lead">Open an existing report to keep working, or start a new draft.</p>
           </div>
           <div className="row wrap" style={{ gap: 10, marginBottom: 18 }}>
-            <button className="btn btn-primary" onClick={onCreateReport} disabled={Boolean(accountIssue)}>
-              {accountIssue ? 'Resolve account issue' : 'New report'}
+            <button
+              className={`btn ${accountIssue ? 'btn-danger' : 'btn-primary'}`}
+              onClick={accountIssue ? onManageBilling : onCreateReport}
+              disabled={billingBusy}
+            >
+              {accountIssue ? (billingBusy ? 'Opening billing…' : 'Manage billing') : 'New report'}
             </button>
             <button className="btn btn-ghost" onClick={onRefresh} disabled={reportsLoading}>
               {reportsLoading ? 'Refreshing…' : 'Refresh'}
@@ -831,11 +903,11 @@ function ReportsDashboard({
               </div>
               <div className="row wrap" style={{ gap: 10, marginTop: 18 }}>
                 {account?.canManageBilling ? (
-                  <button className="btn btn-primary" onClick={onManageBilling} disabled={billingBusy}>
-                    {billingBusy ? 'Opening billing…' : 'Open billing portal'}
+                  <button className={`btn ${accountIssue ? 'btn-danger' : 'btn-primary'}`} onClick={onManageBilling} disabled={billingBusy}>
+                    {billingBusy ? 'Opening billing…' : 'Manage billing'}
                   </button>
                 ) : (
-                  <button className="btn btn-primary" onClick={onUpgradeGrowth} disabled={billingBusy}>
+                  <button className={`btn ${accountIssue ? 'btn-danger' : 'btn-primary'}`} onClick={onUpgradeGrowth} disabled={billingBusy}>
                     {billingBusy ? 'Opening billing…' : 'Complete billing setup'}
                   </button>
                 )}
@@ -856,126 +928,210 @@ function ReportsDashboard({
             </div>
           </div>
 
-          <div className="support-grid support-grid-secondary" style={{ marginTop: 14 }}>
-            <div className="card">
-              <div className="eyebrow">Quick Actions</div>
-              <div className="col" style={{ gap: 12, marginTop: 16 }}>
-                <a className="support-link-row" href={supportHref}>
-                  <span className="landing-icon">{Icons.arrowR({ size: 16 })}</span>
-                  <span>
-                    <strong>Email {SUPPORT_EMAIL}</strong>
-                    <span className="faint">Share account, billing, or report issues with prefilled context.</span>
-                  </span>
-                </a>
-                <button className="support-link-row" onClick={onRefresh} disabled={reportsLoading} type="button">
-                  <span className="landing-icon">{Icons.clock({ size: 16 })}</span>
-                  <span>
-                    <strong>{reportsLoading ? 'Refreshing workspace…' : 'Refresh workspace data'}</strong>
-                    <span className="faint">Reload account limits, report state, and billing-connected UI.</span>
-                  </span>
-                </button>
-                <a className="support-link-row" href="/#faq">
-                  <span className="landing-icon">{Icons.doc({ size: 16 })}</span>
-                  <span>
-                    <strong>Review public FAQ</strong>
-                    <span className="faint">Open the broader product FAQ for onboarding and workflow context.</span>
-                  </span>
-                </a>
-              </div>
-            </div>
-
-            <div className="card">
-              <div className="eyebrow">Support Requests</div>
-              <div className="col" style={{ gap: 10, marginTop: 16 }}>
-                <div className="field">
-                  <label htmlFor="support-category">Category</label>
-                  <select
-                    id="support-category"
-                    className="input"
-                    value={supportCategory}
-                    onChange={(e) => setSupportCategory(e.target.value as SupportRequestCategory)}
-                  >
-                    <option value="billing">Billing</option>
-                    <option value="report">Report workflow</option>
-                    <option value="technical">Technical issue</option>
-                    <option value="general">General question</option>
-                  </select>
+          <div className={`support-grid ${activeSupportRequest ? 'support-grid-thread' : 'support-grid-secondary'}`} style={{ marginTop: 14 }}>
+            {activeSupportRequest ? (
+              <div className="card support-thread-card">
+                <div className="row between wrap" style={{ gap: 10, alignItems: 'flex-start' }}>
+                  <div>
+                    <div className="eyebrow">Ticket View</div>
+                    <h3 className="landing-card-title" style={{ marginTop: 8 }}>{activeSupportRequest.request.subject}</h3>
+                    <div className="faint" style={{ fontSize: 12.5 }}>
+                      {activeSupportRequest.request.category} · {new Date(activeSupportRequest.request.createdAt).toLocaleString()}
+                    </div>
+                  </div>
+                  <div className="row wrap" style={{ gap: 8 }}>
+                    <span className="tag">{activeSupportRequest.request.status}</span>
+                    <button className="btn btn-ghost btn-sm" type="button" onClick={onCloseSupportRequest}>
+                      Back to support
+                    </button>
+                  </div>
                 </div>
-                <div className="field">
-                  <label htmlFor="support-subject">Subject</label>
-                  <input
-                    id="support-subject"
-                    className="input"
-                    value={supportSubject}
-                    onChange={(e) => setSupportSubject(e.target.value)}
-                    placeholder="Short summary of the issue"
-                  />
+                <div className="support-thread">
+                  {supportThreadLoading ? (
+                    <div className="support-thread-empty">Loading the full support conversation…</div>
+                  ) : (
+                    activeSupportRequest.messages.map((message) => (
+                      <article key={message.id} className={`support-message support-message-${message.authorRole}`}>
+                        <div className="row between wrap" style={{ gap: 8 }}>
+                          <strong>{message.authorRole === 'support' ? 'Customer support' : 'You'}</strong>
+                          <span className="faint" style={{ fontSize: 12.5 }}>{new Date(message.createdAt).toLocaleString()}</span>
+                        </div>
+                        <p className="landing-card-copy" style={{ marginTop: 8, whiteSpace: 'pre-wrap' }}>{message.body}</p>
+                      </article>
+                    ))
+                  )}
                 </div>
-                <div className="field">
-                  <label htmlFor="support-message">Message</label>
+                <div className="field" style={{ marginTop: 16 }}>
+                  <label htmlFor="support-reply">Add more details</label>
                   <textarea
-                    id="support-message"
+                    id="support-reply"
                     className="textarea"
-                    value={supportMessage}
-                    onChange={(e) => setSupportMessage(e.target.value)}
-                    placeholder="Describe what happened and what you need help with."
+                    value={supportReply}
+                    onChange={(e) => setSupportReply(e.target.value)}
+                    placeholder="Add additional details, screenshots notes, or follow-up context."
                   />
                 </div>
-                <div className="row wrap" style={{ gap: 10 }}>
+                <div className="row wrap" style={{ gap: 10, marginTop: 14 }}>
                   <button
-                    className="btn btn-primary"
+                    className={`btn ${supportThreadSubmitting ? 'btn-danger' : 'btn-primary'}`}
                     type="button"
-                    disabled={supportSubmitting || !supportSubject.trim() || !supportMessage.trim()}
-                    onClick={submitSupport}
+                    disabled={supportThreadSubmitting || !supportReply.trim()}
+                    onClick={submitSupportReply}
                   >
-                    {supportSubmitting ? 'Sending…' : 'Submit request'}
+                    {supportThreadSubmitting ? 'Posting update…' : 'Add details'}
                   </button>
-                  <a className="btn btn-ghost" href={supportHref}>
-                    Email instead
-                  </a>
                 </div>
+                {supportThreadSubmitting && (
+                  <div className="support-submit-state" role="status" aria-live="polite" style={{ marginTop: 14 }}>
+                    <span className="landing-icon">{Icons.clock({ size: 16 })}</span>
+                    <span>
+                      <strong>Posting your update</strong>
+                      <span className="faint">The new details will appear in this ticket thread as soon as they are saved.</span>
+                    </span>
+                  </div>
+                )}
                 {supportError && (
-                  <div role="alert" className="landing-alert">
+                  <div role="alert" className="landing-alert" style={{ marginTop: 14 }}>
                     <span style={{ color: 'var(--bad)', marginTop: 1 }}>
                       <Icons.alert size={16} />
                     </span>
                     <span>{supportError}</span>
                   </div>
                 )}
-                {supportLoading ? (
-                  <p className="landing-card-copy">Loading recent requests…</p>
-                ) : supportRequests.length === 0 ? (
-                  <p className="landing-card-copy">No support requests yet. Submit one here and it will stay attached to your workspace.</p>
-                ) : (
-                  <div className="col" style={{ gap: 10 }}>
-                    {supportRequests.map((request) => (
-                      <article key={request.id} className="support-faq">
-                        <div className="row between wrap" style={{ gap: 10 }}>
-                          <strong>{request.subject}</strong>
-                          <span className="tag">{request.status}</span>
-                        </div>
-                        <p className="landing-card-copy" style={{ marginTop: 8 }}>{request.message}</p>
-                        <div className="faint" style={{ marginTop: 10, fontSize: 12.5 }}>
-                          {request.category} · {new Date(request.createdAt).toLocaleString()}
-                        </div>
-                      </article>
+              </div>
+            ) : (
+              <div className="card">
+                <div className="eyebrow">Quick Actions</div>
+                <div className="col" style={{ gap: 12, marginTop: 16 }}>
+                  <a className="support-link-row" href={supportHref}>
+                    <span className="landing-icon">{Icons.arrowR({ size: 16 })}</span>
+                    <span>
+                      <strong>Email {SUPPORT_EMAIL}</strong>
+                      <span className="faint">Share account, billing, or report issues with prefilled context.</span>
+                    </span>
+                  </a>
+                  <button className="support-link-row" onClick={onRefresh} disabled={reportsLoading} type="button">
+                    <span className="landing-icon">{Icons.clock({ size: 16 })}</span>
+                    <span>
+                      <strong>{reportsLoading ? 'Refreshing workspace…' : 'Refresh workspace data'}</strong>
+                      <span className="faint">Reload account limits, report state, and billing-connected UI.</span>
+                    </span>
+                  </button>
+                  <a className="support-link-row" href="/#faq">
+                    <span className="landing-icon">{Icons.doc({ size: 16 })}</span>
+                    <span>
+                      <strong>Review public FAQ</strong>
+                      <span className="faint">Open the broader product FAQ for onboarding and workflow context.</span>
+                    </span>
+                  </a>
+                </div>
+              </div>
+            )}
+
+            {!activeSupportRequest ? (
+              <>
+                <div className="card">
+                  <div className="eyebrow">Support Requests</div>
+                  <div className="col" style={{ gap: 10, marginTop: 16 }}>
+                    <div className="field">
+                      <label htmlFor="support-category">Category</label>
+                      <select
+                        id="support-category"
+                        className="input"
+                        value={supportCategory}
+                        onChange={(e) => setSupportCategory(e.target.value as SupportRequestCategory)}
+                      >
+                        <option value="billing">Billing</option>
+                        <option value="report">Report workflow</option>
+                        <option value="technical">Technical issue</option>
+                        <option value="general">General question</option>
+                      </select>
+                    </div>
+                    <div className="field">
+                      <label htmlFor="support-subject">Subject</label>
+                      <input
+                        id="support-subject"
+                        className="input"
+                        value={supportSubject}
+                        onChange={(e) => setSupportSubject(e.target.value)}
+                        placeholder="Short summary of the issue"
+                      />
+                    </div>
+                    <div className="field">
+                      <label htmlFor="support-message">Message</label>
+                      <textarea
+                        id="support-message"
+                        className="textarea"
+                        value={supportMessage}
+                        onChange={(e) => setSupportMessage(e.target.value)}
+                        placeholder="Describe what happened and what you need help with."
+                      />
+                    </div>
+                    <div className="row wrap" style={{ gap: 10 }}>
+                      <button
+                        className={`btn ${supportSubmitting ? 'btn-danger' : 'btn-primary'}`}
+                        type="button"
+                        disabled={supportSubmitting || !supportSubject.trim() || !supportMessage.trim()}
+                        onClick={submitSupport}
+                      >
+                        {supportSubmitting ? 'Submitting request…' : 'Submit request'}
+                      </button>
+                      <a className="btn btn-ghost" href={supportHref}>
+                        Email instead
+                      </a>
+                    </div>
+                    {supportSubmitting && (
+                      <div className="support-submit-state" role="status" aria-live="polite">
+                        <span className="landing-icon">{Icons.clock({ size: 16 })}</span>
+                        <span>
+                          <strong>Submitting your request</strong>
+                          <span className="faint">We’re saving it to your workspace and opening the ticket thread.</span>
+                        </span>
+                      </div>
+                    )}
+                    {supportError && (
+                      <div role="alert" className="landing-alert">
+                        <span style={{ color: 'var(--bad)', marginTop: 1 }}>
+                          <Icons.alert size={16} />
+                        </span>
+                        <span>{supportError}</span>
+                      </div>
+                    )}
+                    {supportLoading ? (
+                      <p className="landing-card-copy">Loading recent requests…</p>
+                    ) : supportRequests.length === 0 ? (
+                      <p className="landing-card-copy">No support requests yet. Submit one here and it will stay attached to your workspace.</p>
+                    ) : (
+                      <div className="col" style={{ gap: 10 }}>
+                        {supportRequests.map((request) => (
+                          <button key={request.id} className="support-ticket-row" type="button" onClick={() => onOpenSupportRequest(request.id)}>
+                            <div className="row between wrap" style={{ gap: 10 }}>
+                              <strong>{request.subject}</strong>
+                              <span className="tag">{request.status}</span>
+                            </div>
+                            <div className="faint" style={{ marginTop: 10, fontSize: 12.5, textAlign: 'left' }}>
+                              {request.category} · {new Date(request.createdAt).toLocaleString()}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="card">
+                  <div className="eyebrow">Common Questions</div>
+                  <div className="col" style={{ gap: 10, marginTop: 16 }}>
+                    {SUPPORT_FAQS.map((item, index) => (
+                      <details key={item.q} className="support-faq" open={Boolean(accountIssue) && index === 0}>
+                        <summary className="landing-faq-summary">{item.q}</summary>
+                        <p className="landing-card-copy" style={{ marginTop: 10 }}>{item.a}</p>
+                      </details>
                     ))}
                   </div>
-                )}
-              </div>
-            </div>
-
-            <div className="card">
-              <div className="eyebrow">Common Questions</div>
-              <div className="col" style={{ gap: 10, marginTop: 16 }}>
-                {SUPPORT_FAQS.map((item, index) => (
-                  <details key={item.q} className="support-faq" open={Boolean(accountIssue) && index === 0}>
-                    <summary className="landing-faq-summary">{item.q}</summary>
-                    <p className="landing-card-copy" style={{ marginTop: 10 }}>{item.a}</p>
-                  </details>
-                ))}
-              </div>
-            </div>
+                </div>
+              </>
+            ) : null}
           </div>
         </section>
       </main>

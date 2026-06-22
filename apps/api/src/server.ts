@@ -11,12 +11,15 @@ import {
   rowToScan,
 } from '@vpat/backend';
 import type {
+  CreateSupportMessageRequest,
+  CreateSupportMessageResponse,
   CreateCheckoutRequest,
   CreatePortalRequest,
   CreateReportRequest,
   CreateSupportRequestRequest,
   ExportRequest,
   ListSupportRequestsResponse,
+  SupportRequestDetail,
   ScanJobMessage,
   StartScanRequest,
   UpdateFindingRequest,
@@ -327,6 +330,12 @@ export function buildServer() {
     return { requests: await store.listSupportRequests(req.currentUser!.userId) };
   });
 
+  app.get<{ Params: { id: string } }>('/api/support-requests/:id', async (req, reply): Promise<SupportRequestDetail | void> => {
+    const detail = await store.getSupportRequestDetail(req.currentUser!.userId, req.params.id);
+    if (!detail) return reply.code(404).send({ error: 'support request not found' });
+    return detail;
+  });
+
   app.post<{ Body: CreateSupportRequestRequest }>(
     '/api/support-requests',
     async (req, reply) => {
@@ -341,6 +350,17 @@ export function buildServer() {
       return {
         request: await store.createSupportRequest(req.currentUser!.userId, category, subject, message),
       };
+    },
+  );
+
+  app.post<{ Params: { id: string }; Body: CreateSupportMessageRequest }>(
+    '/api/support-requests/:id/messages',
+    async (req, reply): Promise<CreateSupportMessageResponse | void> => {
+      const body = req.body?.body?.trim() ?? '';
+      if (!body) return reply.code(400).send({ error: 'message body required' });
+      const message = await store.addSupportRequestMessage(req.currentUser!.userId, req.params.id, body);
+      if (!message) return reply.code(404).send({ error: 'support request not found' });
+      return { message };
     },
   );
 

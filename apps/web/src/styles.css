@@ -329,6 +329,19 @@ h1.title {
   opacity: 0.4;
   cursor: not-allowed;
 }
+.btn-danger {
+  background: linear-gradient(180deg, color-mix(in oklab, var(--bad) 88%, white), var(--bad));
+  color: #fff4f3;
+  border-color: color-mix(in oklab, var(--bad) 72%, black);
+  box-shadow: 0 10px 24px -18px color-mix(in oklab, var(--bad) 70%, transparent);
+}
+.btn-danger:hover {
+  background: color-mix(in oklab, var(--bad) 90%, black);
+}
+.btn-danger:disabled {
+  opacity: 0.7;
+  cursor: progress;
+}
 .btn-ghost {
   background: var(--surface);
   color: var(--text);
@@ -763,6 +776,9 @@ h1.title {
 .support-grid-secondary {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
+.support-grid-thread {
+  grid-template-columns: 1fr;
+}
 .support-hero-card {
   padding: clamp(22px, 3vw, 30px);
   background:
@@ -807,6 +823,69 @@ h1.title {
   border-radius: var(--radius-sm);
   padding: 14px 16px;
   background: color-mix(in oklab, var(--surface-2) 35%, var(--surface));
+}
+.support-submit-state {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 14px 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in oklab, var(--accent) 18%, var(--border));
+  background: color-mix(in oklab, var(--accent) 6%, var(--surface));
+}
+.support-submit-state strong {
+  display: block;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+.support-ticket-row {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--surface-2) 32%, var(--surface));
+  padding: 15px 16px;
+  text-align: left;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.04s ease;
+}
+.support-ticket-row:hover {
+  border-color: color-mix(in oklab, var(--accent) 28%, var(--border-strong));
+  background: color-mix(in oklab, var(--accent) 5%, var(--surface));
+}
+.support-ticket-row:active {
+  transform: translateY(1px);
+}
+.support-thread-card {
+  padding: clamp(22px, 3vw, 30px);
+}
+.support-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 18px;
+  padding: 4px 0;
+}
+.support-thread-empty {
+  padding: 18px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--surface-2) 50%, var(--surface));
+  border: 1px dashed var(--border-strong);
+  color: var(--text-muted);
+}
+.support-message {
+  padding: 16px 18px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  max-width: min(720px, 100%);
+}
+.support-message-customer {
+  align-self: flex-end;
+  background: color-mix(in oklab, var(--accent) 6%, var(--surface));
+  border-color: color-mix(in oklab, var(--accent) 18%, var(--border));
+}
+.support-message-support {
+  align-self: flex-start;
+  background: color-mix(in oklab, var(--ok) 7%, var(--surface));
+  border-color: color-mix(in oklab, var(--ok) 18%, var(--border));
 }
 .landing-card-title {
   font-size: 17px;

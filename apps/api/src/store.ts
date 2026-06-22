@@ -1,6 +1,7 @@
 /** Postgres data access for the API. */
 import {
   rowToSupportRequest,
+  rowToSupportMessage,
   toAccountSummary,
   env,
   query,
@@ -14,6 +15,7 @@ import {
   type FindingRow,
   type EvidenceRow,
   type UserRow,
+  type SupportMessageRow,
   type SupportRequestRow,
 } from '@vpat/backend';
 import {
@@ -25,7 +27,9 @@ import {
   type Evidence,
   type Finding,
   type SupportRequestCategory,
+  type SupportRequestDetail,
   type SupportRequestRecord,
+  type SupportMessageRecord,
   type ReportDetail,
   type ReportStatus,
   type SequencedScanEvent,
@@ -364,7 +368,7 @@ export async function recordExport(
 
 export async function listSupportRequests(userId: string): Promise<SupportRequestRecord[]> {
   const rows = await query<SupportRequestRow>(
-    `SELECT id, category, status, subject, message, created_at
+    `SELECT id, category, status, subject, created_at
      FROM support_requests
      WHERE user_id = $1
      ORDER BY created_at DESC
@@ -381,10 +385,55 @@ export async function createSupportRequest(
   message: string,
 ): Promise<SupportRequestRecord> {
   const row = await queryOne<SupportRequestRow>(
-    `INSERT INTO support_requests (user_id, category, subject, message)
-     VALUES ($1, $2, $3, $4)
-     RETURNING id, category, status, subject, message, created_at`,
-    [userId, category, subject, message],
+    `INSERT INTO support_requests (user_id, category, subject)
+     VALUES ($1, $2, $3)
+     RETURNING id, category, status, subject, created_at`,
+    [userId, category, subject],
+  );
+  await query(
+    `INSERT INTO support_request_messages (support_request_id, author_role, body)
+     VALUES ($1, 'customer', $2)`,
+    [row!.id, message],
   );
   return rowToSupportRequest(row!);
+}
+
+export async function getSupportRequestDetail(userId: string, requestId: string): Promise<SupportRequestDetail | null> {
+  const request = await queryOne<SupportRequestRow>(
+    `SELECT id, category, status, subject, created_at
+     FROM support_requests
+     WHERE id = $1 AND user_id = $2`,
+    [requestId, userId],
+  );
+  if (!request) return null;
+  const messages = await query<SupportMessageRow>(
+    `SELECT id, support_request_id, author_role, body, created_at
+     FROM support_request_messages
+     WHERE support_request_id = $1
+     ORDER BY created_at ASC`,
+    [requestId],
+  );
+  return {
+    request: rowToSupportRequest(request),
+    messages: messages.map(rowToSupportMessage),
+  };
+}
+
+export async function addSupportRequestMessage(
+  userId: string,
+  requestId: string,
+  body: string,
+): Promise<SupportMessageRecord | null> {
+  const request = await queryOne<{ id: string }>(
+    `SELECT id FROM support_requests WHERE id = $1 AND user_id = $2`,
+    [requestId, userId],
+  );
+  if (!request) return null;
+  const message = await queryOne<SupportMessageRow>(
+    `INSERT INTO support_request_messages (support_request_id, author_role, body)
+     VALUES ($1, 'customer', $2)
+     RETURNING id, support_request_id, author_role, body, created_at`,
+    [requestId, body],
+  );
+  return rowToSupportMessage(message!);
 }

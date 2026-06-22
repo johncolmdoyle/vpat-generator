@@ -10,6 +10,7 @@ import {
   type ReportRecord,
   type ScanRecord,
   type SectionId,
+  type SupportMessageRecord,
   type SupportRequestRecord,
   type SubscriptionPlan,
 } from '@vpat/shared';
@@ -93,7 +94,14 @@ export interface SupportRequestRow {
   category: SupportRequestRecord['category'];
   status: SupportRequestRecord['status'];
   subject: string;
-  message: string;
+  created_at: Date;
+}
+
+export interface SupportMessageRow {
+  id: string;
+  support_request_id: string;
+  author_role: SupportMessageRecord['authorRole'];
+  body: string;
   created_at: Date;
 }
 
@@ -200,7 +208,15 @@ export function rowToSupportRequest(r: SupportRequestRow): SupportRequestRecord 
     category: r.category,
     status: r.status,
     subject: r.subject,
-    message: r.message,
+    createdAt: r.created_at.toISOString(),
+  };
+}
+
+export function rowToSupportMessage(r: SupportMessageRow): SupportMessageRecord {
+  return {
+    id: r.id,
+    authorRole: r.author_role,
+    body: r.body,
     createdAt: r.created_at.toISOString(),
   };
 }

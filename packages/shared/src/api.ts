@@ -78,8 +78,19 @@ export interface SupportRequestRecord {
   category: SupportRequestCategory;
   status: 'open' | 'closed';
   subject: string;
-  message: string;
   createdAt: string;
+}
+
+export interface SupportMessageRecord {
+  id: string;
+  authorRole: 'customer' | 'support';
+  body: string;
+  createdAt: string;
+}
+
+export interface SupportRequestDetail {
+  request: SupportRequestRecord;
+  messages: SupportMessageRecord[];
 }
 
 /* ---------- requests / responses ---------- */
@@ -109,6 +120,14 @@ export interface CreateSupportRequestResponse {
 
 export interface ListSupportRequestsResponse {
   requests: SupportRequestRecord[];
+}
+
+export interface CreateSupportMessageRequest {
+  body: string;
+}
+
+export interface CreateSupportMessageResponse {
+  message: SupportMessageRecord;
 }
 
 /** Step-2 credentials are write-only: stored in Secrets Manager, never returned. */

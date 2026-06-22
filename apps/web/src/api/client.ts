@@ -7,6 +7,8 @@ import type {
   CreatePortalRequest,
   CreateReportRequest,
   CreateReportResponse,
+  CreateSupportMessageRequest,
+  CreateSupportMessageResponse,
   CreateSupportRequestRequest,
   CreateSupportRequestResponse,
   ExportFormat,
@@ -21,6 +23,7 @@ import type {
   StartScanResponse,
   UpdateFindingRequest,
   UpdateReportRequest,
+  SupportRequestDetail,
 } from '@vpat/shared';
 import { API_URL } from '../config.js';
 
@@ -102,8 +105,17 @@ export const api = {
   listSupportRequests() {
     return req<ListSupportRequestsResponse>('/api/support-requests');
   },
+  getSupportRequest(requestId: string) {
+    return req<SupportRequestDetail>(`/api/support-requests/${requestId}`);
+  },
   createSupportRequest(body: CreateSupportRequestRequest) {
     return req<CreateSupportRequestResponse>('/api/support-requests', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+  createSupportMessage(requestId: string, body: CreateSupportMessageRequest) {
+    return req<CreateSupportMessageResponse>(`/api/support-requests/${requestId}/messages`, {
       method: 'POST',
       body: JSON.stringify(body),
     });
