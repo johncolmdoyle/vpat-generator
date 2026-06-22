@@ -274,6 +274,7 @@ function AuthenticatedApp() {
   const [adminClientLoading, setAdminClientLoading] = useState(false);
   const [adminSupportLoading, setAdminSupportLoading] = useState(false);
   const [adminSupportSubmitting, setAdminSupportSubmitting] = useState(false);
+  const [adminClientSaving, setAdminClientSaving] = useState(false);
   const [billingNotice, setBillingNotice] = useState<{ tone: 'ok' | 'warn' | 'bad'; text: string } | null>(null);
   const [activeDetail, setActiveDetail] = useState<ReportDetail | null>(null);
   const [activeView, setActiveView] = useState<'dashboard' | 'wizard'>('dashboard');
@@ -371,6 +372,37 @@ function AuthenticatedApp() {
       setAdminError(e instanceof Error ? e.message : 'Could not load client detail');
     } finally {
       setAdminClientLoading(false);
+    }
+  };
+
+  const updateAdminClient = async (
+    clientId: string,
+    patch: { billingEmail?: string | null; contactEmail?: string | null; internalNotes?: string | null; isArchived?: boolean },
+  ) => {
+    setAdminClientSaving(true);
+    setAdminError(null);
+    try {
+      const detail = await api.updateAdminClient(clientId, patch);
+      setActiveAdminClient(detail);
+      setAdminClients((current) => current.map((client) => (client.id === clientId ? detail.client : client)));
+      setAdminSupportRequests((current) =>
+        current.map((request) =>
+          request.clientId === clientId
+            ? {
+                ...request,
+                clientEmail: detail.client.email,
+                billingEmail: detail.client.billingEmail,
+              }
+            : request,
+        ),
+      );
+      await refreshAdminData();
+    } catch (e) {
+      console.error('updateAdminClient failed', e);
+      setAdminError(e instanceof Error ? e.message : 'Could not update client');
+      throw e;
+    } finally {
+      setAdminClientSaving(false);
     }
   };
 
@@ -711,9 +743,11 @@ function AuthenticatedApp() {
       adminClientLoading={adminClientLoading}
       adminSupportLoading={adminSupportLoading}
       adminSupportSubmitting={adminSupportSubmitting}
+      adminClientSaving={adminClientSaving}
       onRefreshAdmin={() => void refreshAdminData()}
       onOpenAdminClient={(clientId) => void openAdminClient(clientId)}
       onCloseAdminClient={() => setActiveAdminClient(null)}
+      onUpdateAdminClient={(clientId, patch) => void updateAdminClient(clientId, patch)}
       onOpenAdminSupportRequest={(requestId) => void openAdminSupportRequest(requestId)}
       onCloseAdminSupportRequest={() => setActiveAdminSupportRequest(null)}
       onSubmitAdminSupportMessage={(requestId, body) => void submitAdminSupportMessage(requestId, body)}
@@ -834,9 +868,11 @@ function ReportsDashboard({
   adminClientLoading,
   adminSupportLoading,
   adminSupportSubmitting,
+  adminClientSaving,
   onRefreshAdmin,
   onOpenAdminClient,
   onCloseAdminClient,
+  onUpdateAdminClient,
   onOpenAdminSupportRequest,
   onCloseAdminSupportRequest,
   onSubmitAdminSupportMessage,
@@ -877,9 +913,14 @@ function ReportsDashboard({
   adminClientLoading: boolean;
   adminSupportLoading: boolean;
   adminSupportSubmitting: boolean;
+  adminClientSaving: boolean;
   onRefreshAdmin: () => void;
   onOpenAdminClient: (clientId: string) => void;
   onCloseAdminClient: () => void;
+  onUpdateAdminClient: (
+    clientId: string,
+    patch: { billingEmail?: string | null; contactEmail?: string | null; internalNotes?: string | null; isArchived?: boolean },
+  ) => void;
   onOpenAdminSupportRequest: (requestId: string) => void;
   onCloseAdminSupportRequest: () => void;
   onSubmitAdminSupportMessage: (requestId: string, body: string) => void;
@@ -1322,9 +1363,11 @@ function ReportsDashboard({
             clientLoading={adminClientLoading}
             supportLoading={adminSupportLoading}
             supportSubmitting={adminSupportSubmitting}
+            adminClientSaving={adminClientSaving}
             onRefresh={onRefreshAdmin}
             onOpenClient={onOpenAdminClient}
             onCloseClient={onCloseAdminClient}
+            onUpdateAdminClient={onUpdateAdminClient}
             onOpenSupportRequest={onOpenAdminSupportRequest}
             onCloseSupportRequest={onCloseAdminSupportRequest}
             onSubmitSupportMessage={onSubmitAdminSupportMessage}
@@ -1348,9 +1391,11 @@ function AdminConsole({
   clientLoading,
   supportLoading,
   supportSubmitting,
+  adminClientSaving,
   onRefresh,
   onOpenClient,
   onCloseClient,
+  onUpdateAdminClient,
   onOpenSupportRequest,
   onCloseSupportRequest,
   onSubmitSupportMessage,
@@ -1367,20 +1412,43 @@ function AdminConsole({
   clientLoading: boolean;
   supportLoading: boolean;
   supportSubmitting: boolean;
+  adminClientSaving: boolean;
   onRefresh: () => void;
   onOpenClient: (clientId: string) => void;
   onCloseClient: () => void;
+  onUpdateAdminClient: (
+    clientId: string,
+    patch: { billingEmail?: string | null; contactEmail?: string | null; internalNotes?: string | null; isArchived?: boolean },
+  ) => void;
   onOpenSupportRequest: (requestId: string) => void;
   onCloseSupportRequest: () => void;
   onSubmitSupportMessage: (requestId: string, body: string) => void;
   onUpdateSupportStatus: (requestId: string, status: SupportRequestStatus) => void;
 }) {
   const [adminReply, setAdminReply] = useState('');
+  const [clientBillingEmail, setClientBillingEmail] = useState('');
+  const [clientContactEmail, setClientContactEmail] = useState('');
+  const [clientInternalNotes, setClientInternalNotes] = useState('');
+
+  useEffect(() => {
+    setClientBillingEmail(activeClient?.client.billingEmail ?? '');
+    setClientContactEmail(activeClient?.client.contactEmail ?? '');
+    setClientInternalNotes(activeClient?.client.internalNotes ?? '');
+  }, [activeClient]);
 
   const submitReply = () => {
     if (!activeSupportRequest || !adminReply.trim()) return;
     onSubmitSupportMessage(activeSupportRequest.request.id, adminReply.trim());
     setAdminReply('');
+  };
+
+  const saveClient = () => {
+    if (!activeClient) return;
+    onUpdateAdminClient(activeClient.client.id, {
+      billingEmail: clientBillingEmail.trim() || null,
+      contactEmail: clientContactEmail.trim() || null,
+      internalNotes: clientInternalNotes.trim() || null,
+    });
   };
 
   return (
@@ -1442,7 +1510,10 @@ function AdminConsole({
               <button key={client.id} className="admin-list-row" type="button" onClick={() => onOpenClient(client.id)}>
                 <div className="row between wrap" style={{ gap: 10 }}>
                   <strong>{client.email}</strong>
-                  <span className="tag">{client.plan}</span>
+                  <div className="row wrap" style={{ gap: 8 }}>
+                    {client.isArchived && <span className="tag">archived</span>}
+                    <span className="tag">{client.plan}</span>
+                  </div>
                 </div>
                 <div className="faint" style={{ marginTop: 8, fontSize: 12.5, textAlign: 'left' }}>
                   {client.hasActiveSubscription ? 'Active subscription' : client.subscriptionStatus ?? 'No subscription'} · {client.reportCount} reports · {client.openSupportRequests} open tickets
@@ -1484,9 +1555,12 @@ function AdminConsole({
                     Billing: {activeClient.client.billingEmail ?? 'unknown'} · Last activity: {formatDateTime(activeClient.client.lastActivityAt)}
                   </div>
                 </div>
-                <button className="btn btn-ghost btn-sm" type="button" onClick={onCloseClient}>
-                  Clear
-                </button>
+                <div className="row wrap" style={{ gap: 8 }}>
+                  <span className="tag">{activeClient.client.isArchived ? 'archived' : 'active'}</span>
+                  <button className="btn btn-ghost btn-sm" type="button" onClick={onCloseClient}>
+                    Clear
+                  </button>
+                </div>
               </div>
               <div className="admin-detail-grid">
                 <div className="panel admin-detail-panel">
@@ -1495,12 +1569,59 @@ function AdminConsole({
                   <span className="faint">Subscription: {activeClient.client.subscriptionStatus ?? 'none'}</span>
                   <span className="faint">Stripe customer: {activeClient.client.stripeCustomerId ?? 'none'}</span>
                   <span className="faint">Stripe subscription: {activeClient.client.stripeSubscriptionId ?? 'none'}</span>
+                  {activeClient.client.archivedAt && <span className="faint">Archived: {formatDateTime(activeClient.client.archivedAt)}</span>}
                 </div>
                 <div className="panel admin-detail-panel">
                   <strong>Usage</strong>
                   <span className="faint">Reports: {activeClient.client.reportCount}</span>
                   <span className="faint">Open tickets: {activeClient.client.openSupportRequests}</span>
                   <span className="faint">Created: {formatDateTime(activeClient.client.createdAt)}</span>
+                </div>
+              </div>
+              <div className="col" style={{ gap: 12 }}>
+                <strong>Client Management</strong>
+                <div className="field">
+                  <label htmlFor="admin-client-billing-email">Billing email</label>
+                  <input
+                    id="admin-client-billing-email"
+                    className="input"
+                    value={clientBillingEmail}
+                    onChange={(e) => setClientBillingEmail(e.target.value)}
+                    placeholder="billing@company.com"
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="admin-client-contact-email">Primary contact email</label>
+                  <input
+                    id="admin-client-contact-email"
+                    className="input"
+                    value={clientContactEmail}
+                    onChange={(e) => setClientContactEmail(e.target.value)}
+                    placeholder="owner@company.com"
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="admin-client-notes">Internal notes</label>
+                  <textarea
+                    id="admin-client-notes"
+                    className="textarea"
+                    value={clientInternalNotes}
+                    onChange={(e) => setClientInternalNotes(e.target.value)}
+                    placeholder="Internal operating notes, follow-ups, or account context."
+                  />
+                </div>
+                <div className="row wrap" style={{ gap: 10 }}>
+                  <button className={`btn ${adminClientSaving ? 'btn-danger' : 'btn-primary'}`} type="button" disabled={adminClientSaving} onClick={saveClient}>
+                    {adminClientSaving ? 'Saving client…' : 'Save client'}
+                  </button>
+                  <button
+                    className={`btn ${activeClient.client.isArchived ? 'btn-ghost' : 'btn-danger'}`}
+                    type="button"
+                    disabled={adminClientSaving}
+                    onClick={() => onUpdateAdminClient(activeClient.client.id, { isArchived: !activeClient.client.isArchived })}
+                  >
+                    {activeClient.client.isArchived ? 'Restore client' : 'Archive client'}
+                  </button>
                 </div>
               </div>
               <div className="col" style={{ gap: 10 }}>

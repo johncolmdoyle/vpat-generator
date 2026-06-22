@@ -90,7 +90,7 @@ export async function findOrCreateUser(
 
 export function getUserRow(userId: string): Promise<UserRow | null> {
   return queryOne<UserRow>(
-    `SELECT id, email, plan, billing_email, stripe_customer_id, stripe_subscription_id, stripe_price_id, subscription_status, created_at
+    `SELECT id, email, plan, billing_email, contact_email, stripe_customer_id, stripe_subscription_id, stripe_price_id, subscription_status, internal_notes, is_archived, archived_at, created_at
      FROM users WHERE id = $1`,
     [userId],
   );
@@ -98,7 +98,7 @@ export function getUserRow(userId: string): Promise<UserRow | null> {
 
 export function getUserByStripeCustomerId(customerId: string): Promise<UserRow | null> {
   return queryOne<UserRow>(
-    `SELECT id, email, plan, billing_email, stripe_customer_id, stripe_subscription_id, stripe_price_id, subscription_status, created_at
+    `SELECT id, email, plan, billing_email, contact_email, stripe_customer_id, stripe_subscription_id, stripe_price_id, subscription_status, internal_notes, is_archived, archived_at, created_at
      FROM users WHERE stripe_customer_id = $1`,
     [customerId],
   );
@@ -343,12 +343,16 @@ function adminClientSummaryFromRow(row: {
   id: string;
   email: string;
   billing_email: string | null;
+  contact_email: string | null;
   plan: SubscriptionPlan;
   subscription_status: string | null;
   stripe_customer_id: string | null;
   stripe_subscription_id: string | null;
   report_count: string;
   open_support_requests: string;
+  internal_notes: string | null;
+  is_archived: boolean;
+  archived_at: Date | null;
   created_at: Date;
   last_activity_at: Date | null;
 }): AdminClientSummary {
@@ -356,6 +360,7 @@ function adminClientSummaryFromRow(row: {
     id: row.id,
     email: row.email,
     billingEmail: row.billing_email,
+    contactEmail: row.contact_email,
     plan: row.plan,
     subscriptionStatus: row.subscription_status,
     hasActiveSubscription: ACTIVE_SUBSCRIPTION_STATUSES.has(row.subscription_status ?? ''),
@@ -365,6 +370,9 @@ function adminClientSummaryFromRow(row: {
     lastActivityAt: row.last_activity_at ? row.last_activity_at.toISOString() : null,
     stripeCustomerId: row.stripe_customer_id,
     stripeSubscriptionId: row.stripe_subscription_id,
+    internalNotes: row.internal_notes,
+    isArchived: row.is_archived,
+    archivedAt: row.archived_at ? row.archived_at.toISOString() : null,
   };
 }
 
@@ -393,7 +401,7 @@ function adminSupportSummaryFromRow(row: {
     clientEmail: row.email,
     billingEmail: row.billing_email,
     plan: row.plan,
-    lastMessageAt: row.last_message_at ? row.last_message_at.toISOString() : null,
+    lastMessageAt: row.last_message_at ? row.last_message_at.toISOString() : row.created_at.toISOString(),
     lastMessagePreview: row.last_message_preview,
   };
 }
@@ -428,12 +436,16 @@ export async function listAdminClients(): Promise<AdminClientSummary[]> {
     id: string;
     email: string;
     billing_email: string | null;
+    contact_email: string | null;
     plan: SubscriptionPlan;
     subscription_status: string | null;
     stripe_customer_id: string | null;
     stripe_subscription_id: string | null;
     report_count: string;
     open_support_requests: string;
+    internal_notes: string | null;
+    is_archived: boolean;
+    archived_at: Date | null;
     created_at: Date;
     last_activity_at: Date | null;
   }>(
@@ -441,12 +453,16 @@ export async function listAdminClients(): Promise<AdminClientSummary[]> {
        u.id,
        u.email,
        u.billing_email,
+       u.contact_email,
        u.plan,
        u.subscription_status,
        u.stripe_customer_id,
        u.stripe_subscription_id,
        COUNT(DISTINCT r.id)::text AS report_count,
        COUNT(DISTINCT sr.id) FILTER (WHERE sr.status IN ('open','pending'))::text AS open_support_requests,
+       u.internal_notes,
+       u.is_archived,
+       u.archived_at,
        u.created_at,
        GREATEST(
          u.created_at,
@@ -469,12 +485,16 @@ export async function getAdminClientDetail(clientId: string): Promise<AdminClien
     id: string;
     email: string;
     billing_email: string | null;
+    contact_email: string | null;
     plan: SubscriptionPlan;
     subscription_status: string | null;
     stripe_customer_id: string | null;
     stripe_subscription_id: string | null;
     report_count: string;
     open_support_requests: string;
+    internal_notes: string | null;
+    is_archived: boolean;
+    archived_at: Date | null;
     created_at: Date;
     last_activity_at: Date | null;
   }>(
@@ -482,12 +502,16 @@ export async function getAdminClientDetail(clientId: string): Promise<AdminClien
        u.id,
        u.email,
        u.billing_email,
+       u.contact_email,
        u.plan,
        u.subscription_status,
        u.stripe_customer_id,
        u.stripe_subscription_id,
        COUNT(DISTINCT r.id)::text AS report_count,
        COUNT(DISTINCT sr.id) FILTER (WHERE sr.status IN ('open','pending'))::text AS open_support_requests,
+       u.internal_notes,
+       u.is_archived,
+       u.archived_at,
        u.created_at,
        GREATEST(
          u.created_at,
@@ -705,10 +729,14 @@ export async function getAdminSupportRequestDetail(requestId: string): Promise<A
     user_id: string;
     email: string;
     billing_email: string | null;
+    contact_email: string | null;
     plan: SubscriptionPlan;
     subscription_status: string | null;
     stripe_customer_id: string | null;
     stripe_subscription_id: string | null;
+    internal_notes: string | null;
+    is_archived: boolean;
+    archived_at: Date | null;
     user_created_at: Date;
     report_count: string;
     open_support_requests: string;
@@ -723,10 +751,14 @@ export async function getAdminSupportRequestDetail(requestId: string): Promise<A
        u.id AS user_id,
        u.email,
        u.billing_email,
+       u.contact_email,
        u.plan,
        u.subscription_status,
        u.stripe_customer_id,
        u.stripe_subscription_id,
+       u.internal_notes,
+       u.is_archived,
+       u.archived_at,
        u.created_at AS user_created_at,
        (SELECT COUNT(*)::text FROM reports WHERE created_by = u.id) AS report_count,
        (SELECT COUNT(*)::text FROM support_requests WHERE user_id = u.id AND status IN ('open','pending')) AS open_support_requests,
@@ -754,10 +786,14 @@ export async function getAdminSupportRequestDetail(requestId: string): Promise<A
       id: row.user_id,
       email: row.email,
       billing_email: row.billing_email,
+      contact_email: row.contact_email,
       plan: row.plan,
       subscription_status: row.subscription_status,
       stripe_customer_id: row.stripe_customer_id,
       stripe_subscription_id: row.stripe_subscription_id,
+      internal_notes: row.internal_notes,
+      is_archived: row.is_archived,
+      archived_at: row.archived_at,
       report_count: row.report_count,
       open_support_requests: row.open_support_requests,
       created_at: row.user_created_at,
@@ -973,4 +1009,45 @@ export async function updateSupportRequestStatus(
     [requestId, status],
   );
   return row ? rowToSupportRequest(row) : null;
+}
+
+export async function updateAdminClient(
+  clientId: string,
+  patch: {
+    billingEmail?: string | null;
+    contactEmail?: string | null;
+    internalNotes?: string | null;
+    isArchived?: boolean;
+  },
+): Promise<AdminClientDetail | null> {
+  const sets: string[] = [];
+  const params: unknown[] = [clientId];
+  if (patch.billingEmail !== undefined) {
+    params.push(patch.billingEmail);
+    sets.push(`billing_email = $${params.length}`);
+  }
+  if (patch.contactEmail !== undefined) {
+    params.push(patch.contactEmail);
+    sets.push(`contact_email = $${params.length}`);
+  }
+  if (patch.internalNotes !== undefined) {
+    params.push(patch.internalNotes);
+    sets.push(`internal_notes = $${params.length}`);
+  }
+  if (patch.isArchived !== undefined) {
+    params.push(patch.isArchived);
+    sets.push(`is_archived = $${params.length}`);
+    params.push(patch.isArchived ? new Date().toISOString() : null);
+    sets.push(`archived_at = $${params.length}`);
+  }
+  if (sets.length === 0) return getAdminClientDetail(clientId);
+  const row = await queryOne<{ id: string }>(
+    `UPDATE users
+     SET ${sets.join(', ')}
+     WHERE id = $1
+     RETURNING id`,
+    params,
+  );
+  if (!row) return null;
+  return getAdminClientDetail(clientId);
 }

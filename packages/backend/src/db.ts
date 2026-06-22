@@ -53,10 +53,14 @@ export async function migrate(): Promise<void> {
     ALTER TABLE users   ADD COLUMN IF NOT EXISTS auth0_subject     TEXT;
     ALTER TABLE users   ADD COLUMN IF NOT EXISTS plan              TEXT NOT NULL DEFAULT 'starter';
     ALTER TABLE users   ADD COLUMN IF NOT EXISTS billing_email         TEXT;
+    ALTER TABLE users   ADD COLUMN IF NOT EXISTS contact_email         TEXT;
     ALTER TABLE users   ADD COLUMN IF NOT EXISTS stripe_customer_id    TEXT;
     ALTER TABLE users   ADD COLUMN IF NOT EXISTS stripe_subscription_id TEXT;
     ALTER TABLE users   ADD COLUMN IF NOT EXISTS stripe_price_id        TEXT;
     ALTER TABLE users   ADD COLUMN IF NOT EXISTS subscription_status    TEXT;
+    ALTER TABLE users   ADD COLUMN IF NOT EXISTS internal_notes         TEXT;
+    ALTER TABLE users   ADD COLUMN IF NOT EXISTS is_archived            BOOLEAN NOT NULL DEFAULT false;
+    ALTER TABLE users   ADD COLUMN IF NOT EXISTS archived_at            TIMESTAMPTZ;
     ALTER TABLE users   ADD COLUMN IF NOT EXISTS created_at            TIMESTAMPTZ NOT NULL DEFAULT now();
   `);
   await pool.query(`

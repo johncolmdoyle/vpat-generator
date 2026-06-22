@@ -31,6 +31,7 @@ import type {
   UpdateReportRequest,
   SupportRequestDetail,
   SupportRequestRecord,
+  UpdateAdminClientRequest,
   UpdateSupportRequestRequest,
 } from '@vpat/shared';
 import { API_URL } from '../config.js';
@@ -121,6 +122,12 @@ export const api = {
   },
   getAdminClient(clientId: string) {
     return req<AdminClientDetail>(`/api/admin/clients/${clientId}`);
+  },
+  updateAdminClient(clientId: string, body: UpdateAdminClientRequest) {
+    return req<AdminClientDetail>(`/api/admin/clients/${clientId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    });
   },
   listAdminReports() {
     return req<ListAdminReportsResponse>('/api/admin/reports');

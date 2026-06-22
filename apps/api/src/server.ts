@@ -16,6 +16,7 @@ import type {
   AdminSupportRequestDetail,
   CreateSupportMessageRequest,
   CreateSupportMessageResponse,
+  UpdateAdminClientRequest,
   UpdateSupportRequestRequest,
   CreateCheckoutRequest,
   CreatePortalRequest,
@@ -508,6 +509,31 @@ export function buildServer() {
     if (!detail) return reply.code(404).send({ error: 'client not found' });
     return detail;
   });
+
+  app.patch<{ Params: { id: string }; Body: UpdateAdminClientRequest }>(
+    '/api/admin/clients/:id',
+    async (req, reply): Promise<AdminClientDetail | void> => {
+      if (!(await requireAdmin(req, reply))) return;
+      const body = req.body ?? {};
+      const updated = await store.updateAdminClient(req.params.id, {
+        billingEmail: body.billingEmail === undefined ? undefined : body.billingEmail?.trim() || null,
+        contactEmail: body.contactEmail === undefined ? undefined : body.contactEmail?.trim() || null,
+        internalNotes: body.internalNotes === undefined ? undefined : body.internalNotes?.trim() || null,
+        isArchived: body.isArchived,
+      });
+      if (!updated) return reply.code(404).send({ error: 'client not found' });
+      await store.recordAuditEvent({
+        actorUserId: req.currentUser!.userId,
+        actorEmail: req.currentUser!.email,
+        action: 'client.updated',
+        targetType: 'user',
+        targetId: req.params.id,
+        subject: body.isArchived !== undefined ? (body.isArchived ? 'Archived client' : 'Unarchived client') : 'Updated client record',
+        metadata: body as Record<string, unknown>,
+      });
+      return updated;
+    },
+  );
 
   app.get('/api/admin/reports', async (req, reply): Promise<ListAdminReportsResponse | void> => {
     if (!(await requireAdmin(req, reply))) return;

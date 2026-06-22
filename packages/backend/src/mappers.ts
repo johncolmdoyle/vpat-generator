@@ -83,10 +83,14 @@ export interface UserRow {
   email: string;
   plan: SubscriptionPlan;
   billing_email: string | null;
+  contact_email: string | null;
   stripe_customer_id: string | null;
   stripe_subscription_id: string | null;
   stripe_price_id: string | null;
   subscription_status: string | null;
+  internal_notes: string | null;
+  is_archived: boolean;
+  archived_at: Date | null;
   created_at?: Date;
 }
 

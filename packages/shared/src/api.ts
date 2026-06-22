@@ -108,6 +108,7 @@ export interface AdminClientSummary {
   id: string;
   email: string;
   billingEmail: string | null;
+  contactEmail: string | null;
   plan: SubscriptionPlan;
   subscriptionStatus: string | null;
   hasActiveSubscription: boolean;
@@ -117,6 +118,9 @@ export interface AdminClientSummary {
   lastActivityAt: string | null;
   stripeCustomerId: string | null;
   stripeSubscriptionId: string | null;
+  internalNotes: string | null;
+  isArchived: boolean;
+  archivedAt: string | null;
 }
 
 export interface AdminReportSummary {
@@ -215,6 +219,13 @@ export interface ListAdminReportsResponse {
 
 export interface ListAdminSupportRequestsResponse {
   requests: AdminSupportRequestSummary[];
+}
+
+export interface UpdateAdminClientRequest {
+  billingEmail?: string | null;
+  contactEmail?: string | null;
+  internalNotes?: string | null;
+  isArchived?: boolean;
 }
 
 /** Step-2 credentials are write-only: stored in Secrets Manager, never returned. */

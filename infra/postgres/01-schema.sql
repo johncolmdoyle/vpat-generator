@@ -16,10 +16,14 @@ CREATE TABLE users (
   plan    TEXT NOT NULL DEFAULT 'starter' CHECK (plan IN ('starter','growth','enterprise')),
   email   TEXT NOT NULL,
   billing_email TEXT,
+  contact_email TEXT,
   stripe_customer_id TEXT UNIQUE,
   stripe_subscription_id TEXT UNIQUE,
   stripe_price_id TEXT,
   subscription_status TEXT,
+  internal_notes TEXT,
+  is_archived BOOLEAN NOT NULL DEFAULT false,
+  archived_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
