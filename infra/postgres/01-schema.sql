@@ -19,7 +19,8 @@ CREATE TABLE users (
   stripe_customer_id TEXT UNIQUE,
   stripe_subscription_id TEXT UNIQUE,
   stripe_price_id TEXT,
-  subscription_status TEXT
+  subscription_status TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE reports (
@@ -132,9 +133,10 @@ CREATE TABLE support_requests (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   category TEXT NOT NULL CHECK (category IN ('billing','report','technical','general')),
-  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','closed')),
+  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','pending','resolved','closed')),
   subject TEXT NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX support_requests_user_created_idx ON support_requests(user_id, created_at DESC);
 
@@ -146,6 +148,21 @@ CREATE TABLE support_request_messages (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX support_request_messages_request_created_idx ON support_request_messages(support_request_id, created_at ASC);
+
+CREATE TABLE audit_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
+  actor_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  actor_email TEXT,
+  action TEXT NOT NULL,
+  target_type TEXT NOT NULL,
+  target_id TEXT,
+  subject TEXT NOT NULL,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX audit_events_org_created_idx ON audit_events(org_id, created_at DESC);
+CREATE INDEX audit_events_target_created_idx ON audit_events(target_type, target_id, created_at DESC);
 
 -- Seed the demo tenant.
 INSERT INTO organizations (id, name)

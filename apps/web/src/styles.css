@@ -887,6 +887,57 @@ h1.title {
   background: color-mix(in oklab, var(--ok) 7%, var(--surface));
   border-color: color-mix(in oklab, var(--ok) 18%, var(--border));
 }
+.admin-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 14px;
+}
+.admin-overview-card {
+  min-height: 0;
+}
+.admin-metric {
+  margin-top: 12px;
+  font-family: var(--mono);
+  font-size: 34px;
+  font-weight: 600;
+  line-height: 1;
+}
+.admin-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 14px;
+}
+.admin-list-row,
+.admin-subrow {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: color-mix(in oklab, var(--surface-2) 38%, var(--surface));
+  text-align: left;
+}
+.admin-list-row {
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.admin-list-row:hover {
+  border-color: color-mix(in oklab, var(--accent) 28%, var(--border-strong));
+  background: color-mix(in oklab, var(--accent) 5%, var(--surface));
+}
+.admin-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.admin-detail-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+}
 .landing-card-title {
   font-size: 17px;
   line-height: 1.2;
@@ -950,7 +1001,10 @@ h1.title {
   .landing-split,
   .landing-cta,
   .support-grid,
-  .support-grid-secondary {
+  .support-grid-secondary,
+  .admin-grid,
+  .admin-overview-grid,
+  .admin-detail-grid {
     grid-template-columns: 1fr;
   }
   .landing-title {

@@ -59,6 +59,15 @@ export async function ensureCustomer(user: UserRow): Promise<string> {
     metadata: { userId: user.id },
   });
   await store.setStripeCustomer(user.id, customer.id, customer.email ?? user.email);
+  await store.recordAuditEvent({
+    actorUserId: user.id,
+    actorEmail: user.email,
+    action: 'billing.customer_created',
+    targetType: 'user',
+    targetId: user.id,
+    subject: 'Created Stripe customer record',
+    metadata: { stripeCustomerId: customer.id },
+  });
   return customer.id;
 }
 
@@ -110,6 +119,14 @@ export async function syncSubscriptionToUser(
     subscriptionStatus: subscription.status,
     billingEmail: await customerEmail(subscription.customer),
   });
+  await store.recordAuditEvent({
+    actorUserId: userId,
+    action: 'billing.subscription_synced',
+    targetType: 'user',
+    targetId: userId,
+    subject: `Synced Stripe subscription (${subscription.status})`,
+    metadata: { subscriptionId: subscription.id, priceId, status: subscription.status, plan: nextPlan },
+  });
   const user = await store.getUserRow(userId);
   if (!user) throw new Error('user not found after Stripe sync');
   const activeReports = await store.countActiveReports(userId);
@@ -126,6 +143,15 @@ export async function clearSubscriptionForCustomer(customerId: string, status: s
     stripePriceId: null,
     subscriptionStatus: status,
     billingEmail: await customerEmail(customerId),
+  });
+  await store.recordAuditEvent({
+    actorUserId: user.id,
+    actorEmail: user.email,
+    action: 'billing.subscription_cleared',
+    targetType: 'user',
+    targetId: user.id,
+    subject: `Cleared Stripe subscription (${status})`,
+    metadata: { stripeCustomerId: customerId, status },
   });
 }
 

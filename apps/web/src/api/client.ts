@@ -1,6 +1,12 @@
 /** Typed REST + SSE client for the backend (used only when `hasApi`). */
 import type {
   AccountSummary,
+  AdminClientDetail,
+  AdminOverview,
+  AdminSupportRequestDetail,
+  ListAdminClientsResponse,
+  ListAdminReportsResponse,
+  ListAdminSupportRequestsResponse,
   CheckoutSessionResponse,
   ConfirmCheckoutResponse,
   CreateCheckoutRequest,
@@ -24,6 +30,8 @@ import type {
   UpdateFindingRequest,
   UpdateReportRequest,
   SupportRequestDetail,
+  SupportRequestRecord,
+  UpdateSupportRequestRequest,
 } from '@vpat/shared';
 import { API_URL } from '../config.js';
 
@@ -105,6 +113,24 @@ export const api = {
   listSupportRequests() {
     return req<ListSupportRequestsResponse>('/api/support-requests');
   },
+  getAdminOverview() {
+    return req<AdminOverview>('/api/admin/overview');
+  },
+  listAdminClients() {
+    return req<ListAdminClientsResponse>('/api/admin/clients');
+  },
+  getAdminClient(clientId: string) {
+    return req<AdminClientDetail>(`/api/admin/clients/${clientId}`);
+  },
+  listAdminReports() {
+    return req<ListAdminReportsResponse>('/api/admin/reports');
+  },
+  listAdminSupportRequests() {
+    return req<ListAdminSupportRequestsResponse>('/api/admin/support-requests');
+  },
+  getAdminSupportRequest(requestId: string) {
+    return req<AdminSupportRequestDetail>(`/api/admin/support-requests/${requestId}`);
+  },
   getSupportRequest(requestId: string) {
     return req<SupportRequestDetail>(`/api/support-requests/${requestId}`);
   },
@@ -117,6 +143,18 @@ export const api = {
   createSupportMessage(requestId: string, body: CreateSupportMessageRequest) {
     return req<CreateSupportMessageResponse>(`/api/support-requests/${requestId}/messages`, {
       method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+  createAdminSupportMessage(requestId: string, body: CreateSupportMessageRequest) {
+    return req<CreateSupportMessageResponse>(`/api/admin/support-requests/${requestId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+  updateAdminSupportRequest(requestId: string, body: UpdateSupportRequestRequest) {
+    return req<SupportRequestRecord>(`/api/admin/support-requests/${requestId}`, {
+      method: 'PATCH',
       body: JSON.stringify(body),
     });
   },

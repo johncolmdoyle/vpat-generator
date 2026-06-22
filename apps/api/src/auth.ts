@@ -7,6 +7,7 @@ export interface AuthClaims {
   sub: string;
   email: string | null;
   planHint: SubscriptionPlan | null;
+  permissions: string[];
 }
 
 function normalizeEmail(value: string | null | undefined): string | null {
@@ -21,6 +22,7 @@ declare module 'fastify' {
       auth0Sub: string;
       email: string | null;
       userId: string;
+      permissions: string[];
     } | null;
   }
 }
@@ -39,14 +41,19 @@ function bearerToken(req: FastifyRequest): string | null {
 function toClaims(payload: JWTPayload): AuthClaims | null {
   if (typeof payload.sub !== 'string' || payload.sub.length === 0) return null;
   const rawPlan = env.auth0.planClaim ? payload[env.auth0.planClaim] : undefined;
+  const rawPermissions = payload[env.auth0.permissionsClaim];
   const planHint =
     rawPlan === 'starter' || rawPlan === 'growth' || rawPlan === 'enterprise'
       ? rawPlan
       : null;
+  const permissions = Array.isArray(rawPermissions)
+    ? rawPermissions.filter((item): item is string => typeof item === 'string' && item.length > 0)
+    : [];
   return {
     sub: payload.sub,
     email: normalizeEmail(typeof payload.email === 'string' ? payload.email : null),
     planHint,
+    permissions,
   };
 }
 

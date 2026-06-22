@@ -4,6 +4,12 @@ import { useAuth0 } from '@auth0/auth0-react';
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   type AccountSummary,
+  type AdminClientDetail,
+  type AdminClientSummary,
+  type AdminOverview,
+  type AdminReportSummary,
+  type AdminSupportRequestDetail,
+  type AdminSupportRequestSummary,
   CRITERIA,
   PAGES,
   emptyReportMeta,
@@ -19,6 +25,7 @@ import {
   type SupportRequestCategory,
   type SupportRequestDetail,
   type SupportRequestRecord,
+  type SupportRequestStatus,
   type WcagTarget,
   type WizardForm,
 } from '@vpat/shared';
@@ -152,6 +159,11 @@ const SUPPORT_FAQS = [
   },
 ] as const;
 
+function formatDateTime(value: string | null | undefined) {
+  if (!value) return 'No activity yet';
+  return new Date(value).toLocaleString();
+}
+
 function subscriptionIssueMessage(account: AccountSummary | null | undefined): string | null {
   if (!account) return null;
   if (account.hasActiveSubscription) return null;
@@ -251,6 +263,17 @@ function AuthenticatedApp() {
   const [activeSupportRequest, setActiveSupportRequest] = useState<SupportRequestDetail | null>(null);
   const [supportThreadLoading, setSupportThreadLoading] = useState(false);
   const [supportThreadSubmitting, setSupportThreadSubmitting] = useState(false);
+  const [adminOverview, setAdminOverview] = useState<AdminOverview | null>(null);
+  const [adminClients, setAdminClients] = useState<AdminClientSummary[]>([]);
+  const [adminReports, setAdminReports] = useState<AdminReportSummary[]>([]);
+  const [adminSupportRequests, setAdminSupportRequests] = useState<AdminSupportRequestSummary[]>([]);
+  const [adminLoading, setAdminLoading] = useState(false);
+  const [adminError, setAdminError] = useState<string | null>(null);
+  const [activeAdminClient, setActiveAdminClient] = useState<AdminClientDetail | null>(null);
+  const [activeAdminSupportRequest, setActiveAdminSupportRequest] = useState<AdminSupportRequestDetail | null>(null);
+  const [adminClientLoading, setAdminClientLoading] = useState(false);
+  const [adminSupportLoading, setAdminSupportLoading] = useState(false);
+  const [adminSupportSubmitting, setAdminSupportSubmitting] = useState(false);
   const [billingNotice, setBillingNotice] = useState<{ tone: 'ok' | 'warn' | 'bad'; text: string } | null>(null);
   const [activeDetail, setActiveDetail] = useState<ReportDetail | null>(null);
   const [activeView, setActiveView] = useState<'dashboard' | 'wizard'>('dashboard');
@@ -305,6 +328,24 @@ function AuthenticatedApp() {
       .finally(() => setSupportLoading(false));
   };
 
+  const refreshAdminData = () => {
+    if (!account?.isAdmin) return Promise.resolve();
+    setAdminLoading(true);
+    setAdminError(null);
+    return Promise.all([api.getAdminOverview(), api.listAdminClients(), api.listAdminReports(), api.listAdminSupportRequests()])
+      .then(([overview, clientsRes, reportsRes, supportRes]) => {
+        setAdminOverview(overview);
+        setAdminClients(clientsRes.clients);
+        setAdminReports(reportsRes.reports);
+        setAdminSupportRequests(supportRes.requests);
+      })
+      .catch((e) => {
+        console.error('admin data load failed', e);
+        setAdminError(e instanceof Error ? e.message : 'Could not load admin console');
+      })
+      .finally(() => setAdminLoading(false));
+  };
+
   const openSupportRequest = async (requestId: string) => {
     setSupportThreadLoading(true);
     setSupportError(null);
@@ -316,6 +357,34 @@ function AuthenticatedApp() {
       setSupportError(e instanceof Error ? e.message : 'Could not load support request');
     } finally {
       setSupportThreadLoading(false);
+    }
+  };
+
+  const openAdminClient = async (clientId: string) => {
+    setAdminClientLoading(true);
+    setAdminError(null);
+    try {
+      const detail = await api.getAdminClient(clientId);
+      setActiveAdminClient(detail);
+    } catch (e) {
+      console.error('getAdminClient failed', e);
+      setAdminError(e instanceof Error ? e.message : 'Could not load client detail');
+    } finally {
+      setAdminClientLoading(false);
+    }
+  };
+
+  const openAdminSupportRequest = async (requestId: string) => {
+    setAdminSupportLoading(true);
+    setAdminError(null);
+    try {
+      const detail = await api.getAdminSupportRequest(requestId);
+      setActiveAdminSupportRequest(detail);
+    } catch (e) {
+      console.error('getAdminSupportRequest failed', e);
+      setAdminError(e instanceof Error ? e.message : 'Could not load support ticket');
+    } finally {
+      setAdminSupportLoading(false);
     }
   };
 
@@ -379,6 +448,11 @@ function AuthenticatedApp() {
     void refreshReports();
     void refreshSupportRequests();
   }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (!hasApi || !isAuthenticated || !account?.isAdmin) return;
+    void refreshAdminData();
+  }, [account?.isAdmin, isAuthenticated]);
 
   useEffect(() => {
     if (!hasApi || !isAuthenticated) return;
@@ -471,6 +545,47 @@ function AuthenticatedApp() {
       throw e;
     } finally {
       setSupportThreadSubmitting(false);
+    }
+  };
+
+  const submitAdminSupportMessage = async (requestId: string, body: string) => {
+    setAdminSupportSubmitting(true);
+    setAdminError(null);
+    try {
+      const res = await api.createAdminSupportMessage(requestId, { body });
+      setActiveAdminSupportRequest((current) =>
+        current && current.request.id === requestId
+          ? { ...current, messages: [...current.messages, res.message] }
+          : current,
+      );
+      await refreshAdminData();
+    } catch (e) {
+      console.error('createAdminSupportMessage failed', e);
+      setAdminError(e instanceof Error ? e.message : 'Could not send admin support reply');
+      throw e;
+    } finally {
+      setAdminSupportSubmitting(false);
+    }
+  };
+
+  const updateAdminSupportStatus = async (requestId: string, status: SupportRequestStatus) => {
+    setAdminSupportSubmitting(true);
+    setAdminError(null);
+    try {
+      const updated = await api.updateAdminSupportRequest(requestId, { status });
+      setActiveAdminSupportRequest((current) =>
+        current && current.request.id === requestId ? { ...current, request: updated } : current,
+      );
+      setAdminSupportRequests((current) =>
+        current.map((item) => (item.request.id === requestId ? { ...item, request: updated } : item)),
+      );
+      await refreshAdminData();
+    } catch (e) {
+      console.error('updateAdminSupportStatus failed', e);
+      setAdminError(e instanceof Error ? e.message : 'Could not update support status');
+      throw e;
+    } finally {
+      setAdminSupportSubmitting(false);
     }
   };
 
@@ -585,6 +700,24 @@ function AuthenticatedApp() {
       onCloseSupportRequest={() => setActiveSupportRequest(null)}
       onSubmitSupportRequest={(category, subject, message) => void submitSupportRequest(category, subject, message)}
       onSubmitSupportMessage={(requestId, body) => void submitSupportMessage(requestId, body)}
+      adminOverview={adminOverview}
+      adminClients={adminClients}
+      adminReports={adminReports}
+      adminSupportRequests={adminSupportRequests}
+      adminLoading={adminLoading}
+      adminError={adminError}
+      activeAdminClient={activeAdminClient}
+      activeAdminSupportRequest={activeAdminSupportRequest}
+      adminClientLoading={adminClientLoading}
+      adminSupportLoading={adminSupportLoading}
+      adminSupportSubmitting={adminSupportSubmitting}
+      onRefreshAdmin={() => void refreshAdminData()}
+      onOpenAdminClient={(clientId) => void openAdminClient(clientId)}
+      onCloseAdminClient={() => setActiveAdminClient(null)}
+      onOpenAdminSupportRequest={(requestId) => void openAdminSupportRequest(requestId)}
+      onCloseAdminSupportRequest={() => setActiveAdminSupportRequest(null)}
+      onSubmitAdminSupportMessage={(requestId, body) => void submitAdminSupportMessage(requestId, body)}
+      onUpdateAdminSupportStatus={(requestId, status) => void updateAdminSupportStatus(requestId, status)}
       onSignout={signout}
     />
   ) : (
@@ -690,6 +823,24 @@ function ReportsDashboard({
   onCloseSupportRequest,
   onSubmitSupportRequest,
   onSubmitSupportMessage,
+  adminOverview,
+  adminClients,
+  adminReports,
+  adminSupportRequests,
+  adminLoading,
+  adminError,
+  activeAdminClient,
+  activeAdminSupportRequest,
+  adminClientLoading,
+  adminSupportLoading,
+  adminSupportSubmitting,
+  onRefreshAdmin,
+  onOpenAdminClient,
+  onCloseAdminClient,
+  onOpenAdminSupportRequest,
+  onCloseAdminSupportRequest,
+  onSubmitAdminSupportMessage,
+  onUpdateAdminSupportStatus,
   onSignout,
 }: {
   account: AccountSummary | null;
@@ -715,6 +866,24 @@ function ReportsDashboard({
   onCloseSupportRequest: () => void;
   onSubmitSupportRequest: (category: SupportRequestCategory, subject: string, message: string) => void;
   onSubmitSupportMessage: (requestId: string, body: string) => void;
+  adminOverview: AdminOverview | null;
+  adminClients: AdminClientSummary[];
+  adminReports: AdminReportSummary[];
+  adminSupportRequests: AdminSupportRequestSummary[];
+  adminLoading: boolean;
+  adminError: string | null;
+  activeAdminClient: AdminClientDetail | null;
+  activeAdminSupportRequest: AdminSupportRequestDetail | null;
+  adminClientLoading: boolean;
+  adminSupportLoading: boolean;
+  adminSupportSubmitting: boolean;
+  onRefreshAdmin: () => void;
+  onOpenAdminClient: (clientId: string) => void;
+  onCloseAdminClient: () => void;
+  onOpenAdminSupportRequest: (requestId: string) => void;
+  onCloseAdminSupportRequest: () => void;
+  onSubmitAdminSupportMessage: (requestId: string, body: string) => void;
+  onUpdateAdminSupportStatus: (requestId: string, status: SupportRequestStatus) => void;
   onSignout: () => void;
 }) {
   const accountIssue = subscriptionIssueMessage(account);
@@ -773,6 +942,11 @@ function ReportsDashboard({
         <a className="btn btn-ghost btn-sm" href="#support-center">
           Support center
         </a>
+        {account?.isAdmin && (
+          <a className="btn btn-ghost btn-sm" href="#admin-console">
+            Admin console
+          </a>
+        )}
         <span className="tag" aria-label={`Signed in as ${userLabel}`}>
           {userLabel}
         </span>
@@ -1134,8 +1308,323 @@ function ReportsDashboard({
             ) : null}
           </div>
         </section>
+
+        {account?.isAdmin && (
+          <AdminConsole
+            overview={adminOverview}
+            clients={adminClients}
+            reports={adminReports}
+            supportRequests={adminSupportRequests}
+            loading={adminLoading}
+            error={adminError}
+            activeClient={activeAdminClient}
+            activeSupportRequest={activeAdminSupportRequest}
+            clientLoading={adminClientLoading}
+            supportLoading={adminSupportLoading}
+            supportSubmitting={adminSupportSubmitting}
+            onRefresh={onRefreshAdmin}
+            onOpenClient={onOpenAdminClient}
+            onCloseClient={onCloseAdminClient}
+            onOpenSupportRequest={onOpenAdminSupportRequest}
+            onCloseSupportRequest={onCloseAdminSupportRequest}
+            onSubmitSupportMessage={onSubmitAdminSupportMessage}
+            onUpdateSupportStatus={onUpdateAdminSupportStatus}
+          />
+        )}
       </main>
     </div>
+  );
+}
+
+function AdminConsole({
+  overview,
+  clients,
+  reports,
+  supportRequests,
+  loading,
+  error,
+  activeClient,
+  activeSupportRequest,
+  clientLoading,
+  supportLoading,
+  supportSubmitting,
+  onRefresh,
+  onOpenClient,
+  onCloseClient,
+  onOpenSupportRequest,
+  onCloseSupportRequest,
+  onSubmitSupportMessage,
+  onUpdateSupportStatus,
+}: {
+  overview: AdminOverview | null;
+  clients: AdminClientSummary[];
+  reports: AdminReportSummary[];
+  supportRequests: AdminSupportRequestSummary[];
+  loading: boolean;
+  error: string | null;
+  activeClient: AdminClientDetail | null;
+  activeSupportRequest: AdminSupportRequestDetail | null;
+  clientLoading: boolean;
+  supportLoading: boolean;
+  supportSubmitting: boolean;
+  onRefresh: () => void;
+  onOpenClient: (clientId: string) => void;
+  onCloseClient: () => void;
+  onOpenSupportRequest: (requestId: string) => void;
+  onCloseSupportRequest: () => void;
+  onSubmitSupportMessage: (requestId: string, body: string) => void;
+  onUpdateSupportStatus: (requestId: string, status: SupportRequestStatus) => void;
+}) {
+  const [adminReply, setAdminReply] = useState('');
+
+  const submitReply = () => {
+    if (!activeSupportRequest || !adminReply.trim()) return;
+    onSubmitSupportMessage(activeSupportRequest.request.id, adminReply.trim());
+    setAdminReply('');
+  };
+
+  return (
+    <section className="landing-section" id="admin-console" aria-labelledby="admin-console-title">
+      <div className="landing-section-head" style={{ marginBottom: 18 }}>
+        <div className="eyebrow">Admin Console</div>
+        <h2 className="landing-section-title" id="admin-console-title">Run support, client visibility, and report operations from one place.</h2>
+        <p className="lead">This area is shown from Auth0 permissions and includes client billing state, report inventory, ticket workflows, and a lightweight audit trail.</p>
+      </div>
+
+      <div className="row wrap" style={{ gap: 10, marginBottom: 18 }}>
+        <button className="btn btn-primary" type="button" onClick={onRefresh} disabled={loading}>
+          {loading ? 'Refreshing admin data…' : 'Refresh admin data'}
+        </button>
+      </div>
+
+      {error && (
+        <div role="alert" className="landing-alert" style={{ marginBottom: 16 }}>
+          <span style={{ color: 'var(--bad)', marginTop: 1 }}>
+            <Icons.alert size={16} />
+          </span>
+          <span>{error}</span>
+        </div>
+      )}
+
+      <div className="admin-overview-grid">
+        <article className="card admin-overview-card">
+          <div className="eyebrow">Clients</div>
+          <div className="admin-metric">{overview?.totalClients ?? 0}</div>
+          <p className="landing-card-copy">Known customer accounts in the system.</p>
+        </article>
+        <article className="card admin-overview-card">
+          <div className="eyebrow">Active Subs</div>
+          <div className="admin-metric">{overview?.activeSubscriptions ?? 0}</div>
+          <p className="landing-card-copy">Customers currently in `active` or `trialing` subscription state.</p>
+        </article>
+        <article className="card admin-overview-card">
+          <div className="eyebrow">Past Due</div>
+          <div className="admin-metric">{overview?.pastDueSubscriptions ?? 0}</div>
+          <p className="landing-card-copy">Accounts needing billing follow-up.</p>
+        </article>
+        <article className="card admin-overview-card">
+          <div className="eyebrow">Active Reports</div>
+          <div className="admin-metric">{overview?.activeReports ?? 0}</div>
+          <p className="landing-card-copy">Reports still in progress or under review.</p>
+        </article>
+        <article className="card admin-overview-card">
+          <div className="eyebrow">Open Tickets</div>
+          <div className="admin-metric">{overview?.openSupportRequests ?? 0}</div>
+          <p className="landing-card-copy">Support requests waiting on customer service or follow-up.</p>
+        </article>
+      </div>
+
+      <div className="admin-grid">
+        <div className="card">
+          <div className="eyebrow">Clients</div>
+          <div className="col" style={{ gap: 10, marginTop: 16 }}>
+            {clients.map((client) => (
+              <button key={client.id} className="admin-list-row" type="button" onClick={() => onOpenClient(client.id)}>
+                <div className="row between wrap" style={{ gap: 10 }}>
+                  <strong>{client.email}</strong>
+                  <span className="tag">{client.plan}</span>
+                </div>
+                <div className="faint" style={{ marginTop: 8, fontSize: 12.5, textAlign: 'left' }}>
+                  {client.hasActiveSubscription ? 'Active subscription' : client.subscriptionStatus ?? 'No subscription'} · {client.reportCount} reports · {client.openSupportRequests} open tickets
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="eyebrow">Support Queue</div>
+          <div className="col" style={{ gap: 10, marginTop: 16 }}>
+            {supportRequests.map((item) => (
+              <button key={item.request.id} className="admin-list-row" type="button" onClick={() => onOpenSupportRequest(item.request.id)}>
+                <div className="row between wrap" style={{ gap: 10 }}>
+                  <strong>{item.request.subject}</strong>
+                  <span className="tag">{item.request.status}</span>
+                </div>
+                <div className="faint" style={{ marginTop: 8, fontSize: 12.5, textAlign: 'left' }}>
+                  {item.clientEmail} · {item.plan} · {formatDateTime(item.lastMessageAt ?? item.request.createdAt)}
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="admin-grid">
+        <div className="card">
+          <div className="eyebrow">Client Detail</div>
+          {clientLoading ? (
+            <p className="landing-card-copy" style={{ marginTop: 16 }}>Loading client record…</p>
+          ) : activeClient ? (
+            <div className="col" style={{ gap: 16, marginTop: 16 }}>
+              <div className="row between wrap" style={{ gap: 10 }}>
+                <div>
+                  <h3 className="landing-card-title" style={{ marginTop: 0 }}>{activeClient.client.email}</h3>
+                  <div className="faint" style={{ fontSize: 12.5 }}>
+                    Billing: {activeClient.client.billingEmail ?? 'unknown'} · Last activity: {formatDateTime(activeClient.client.lastActivityAt)}
+                  </div>
+                </div>
+                <button className="btn btn-ghost btn-sm" type="button" onClick={onCloseClient}>
+                  Clear
+                </button>
+              </div>
+              <div className="admin-detail-grid">
+                <div className="panel admin-detail-panel">
+                  <strong>Account</strong>
+                  <span className="faint">Plan: {activeClient.client.plan}</span>
+                  <span className="faint">Subscription: {activeClient.client.subscriptionStatus ?? 'none'}</span>
+                  <span className="faint">Stripe customer: {activeClient.client.stripeCustomerId ?? 'none'}</span>
+                  <span className="faint">Stripe subscription: {activeClient.client.stripeSubscriptionId ?? 'none'}</span>
+                </div>
+                <div className="panel admin-detail-panel">
+                  <strong>Usage</strong>
+                  <span className="faint">Reports: {activeClient.client.reportCount}</span>
+                  <span className="faint">Open tickets: {activeClient.client.openSupportRequests}</span>
+                  <span className="faint">Created: {formatDateTime(activeClient.client.createdAt)}</span>
+                </div>
+              </div>
+              <div className="col" style={{ gap: 10 }}>
+                <strong>Reports</strong>
+                {activeClient.reports.length === 0 ? (
+                  <p className="landing-card-copy">No reports yet.</p>
+                ) : (
+                  activeClient.reports.map((item) => (
+                    <div key={item.report.id} className="admin-subrow">
+                      <strong>{item.report.productName || item.report.domain}</strong>
+                      <span className="faint">{item.report.status} · scan {item.latestScanState ?? 'not started'} · {item.report.domain}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+              <div className="col" style={{ gap: 10 }}>
+                <strong>Audit trail</strong>
+                {activeClient.auditEvents.length === 0 ? (
+                  <p className="landing-card-copy">No audit entries yet.</p>
+                ) : (
+                  activeClient.auditEvents.slice(0, 8).map((event) => (
+                    <div key={event.id} className="admin-subrow">
+                      <strong>{event.subject}</strong>
+                      <span className="faint">{event.actorEmail ?? 'system'} · {formatDateTime(event.createdAt)}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          ) : (
+            <p className="landing-card-copy" style={{ marginTop: 16 }}>Choose a client to inspect billing state, reports, support history, and audit activity.</p>
+          )}
+        </div>
+
+        <div className="card">
+          <div className="eyebrow">Ticket Detail</div>
+          {supportLoading ? (
+            <p className="landing-card-copy" style={{ marginTop: 16 }}>Loading support ticket…</p>
+          ) : activeSupportRequest ? (
+            <div className="col" style={{ gap: 16, marginTop: 16 }}>
+              <div className="row between wrap" style={{ gap: 10 }}>
+                <div>
+                  <h3 className="landing-card-title" style={{ marginTop: 0 }}>{activeSupportRequest.request.subject}</h3>
+                  <div className="faint" style={{ fontSize: 12.5 }}>
+                    {activeSupportRequest.client.email} · {activeSupportRequest.client.plan} · {activeSupportRequest.request.category}
+                  </div>
+                </div>
+                <button className="btn btn-ghost btn-sm" type="button" onClick={onCloseSupportRequest}>
+                  Clear
+                </button>
+              </div>
+              <div className="row wrap" style={{ gap: 8 }}>
+                {(['open', 'pending', 'resolved', 'closed'] as SupportRequestStatus[]).map((status) => (
+                  <button
+                    key={status}
+                    className={`btn ${activeSupportRequest.request.status === status ? 'btn-danger' : 'btn-ghost'} btn-sm`}
+                    type="button"
+                    disabled={supportSubmitting}
+                    onClick={() => onUpdateSupportStatus(activeSupportRequest.request.id, status)}
+                  >
+                    {status}
+                  </button>
+                ))}
+              </div>
+              <div className="support-thread">
+                {activeSupportRequest.messages.map((message) => (
+                  <article key={message.id} className={`support-message support-message-${message.authorRole}`}>
+                    <div className="row between wrap" style={{ gap: 8 }}>
+                      <strong>{message.authorRole === 'support' ? 'Support' : 'Customer'}</strong>
+                      <span className="faint" style={{ fontSize: 12.5 }}>{formatDateTime(message.createdAt)}</span>
+                    </div>
+                    <p className="landing-card-copy" style={{ marginTop: 8, whiteSpace: 'pre-wrap' }}>{message.body}</p>
+                  </article>
+                ))}
+              </div>
+              <div className="field">
+                <label htmlFor="admin-support-reply">Reply as support</label>
+                <textarea
+                  id="admin-support-reply"
+                  className="textarea"
+                  value={adminReply}
+                  onChange={(e) => setAdminReply(e.target.value)}
+                  placeholder="Reply to the client with next steps, billing instructions, or troubleshooting details."
+                />
+              </div>
+              <div className="row wrap" style={{ gap: 10 }}>
+                <button className={`btn ${supportSubmitting ? 'btn-danger' : 'btn-primary'}`} type="button" disabled={supportSubmitting || !adminReply.trim()} onClick={submitReply}>
+                  {supportSubmitting ? 'Sending reply…' : 'Send reply'}
+                </button>
+              </div>
+              <div className="col" style={{ gap: 10 }}>
+                <strong>Audit trail</strong>
+                {activeSupportRequest.auditEvents.length === 0 ? (
+                  <p className="landing-card-copy">No audit entries yet.</p>
+                ) : (
+                  activeSupportRequest.auditEvents.map((event) => (
+                    <div key={event.id} className="admin-subrow">
+                      <strong>{event.subject}</strong>
+                      <span className="faint">{event.actorEmail ?? 'system'} · {formatDateTime(event.createdAt)}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          ) : (
+            <p className="landing-card-copy" style={{ marginTop: 16 }}>Choose a ticket to reply as support, change status, and review the client’s thread history.</p>
+          )}
+        </div>
+      </div>
+
+      <div className="card" style={{ marginTop: 14 }}>
+        <div className="eyebrow">All Reports</div>
+        <div className="col" style={{ gap: 10, marginTop: 16 }}>
+          {reports.map((item) => (
+            <div key={item.report.id} className="admin-subrow">
+              <strong>{item.report.productName || item.report.domain}</strong>
+              <span className="faint">
+                {item.clientEmail ?? 'unknown client'} · {item.report.status} · {item.latestScanState ?? 'no scan'} · created {formatDateTime(item.report.createdAt)}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
   );
 }
 

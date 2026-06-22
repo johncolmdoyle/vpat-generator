@@ -87,6 +87,7 @@ export interface UserRow {
   stripe_subscription_id: string | null;
   stripe_price_id: string | null;
   subscription_status: string | null;
+  created_at?: Date;
 }
 
 export interface SupportRequestRow {
@@ -199,6 +200,8 @@ export function toAccountSummary(
     canManageBilling: Boolean(user.stripe_customer_id),
     hasActiveSubscription,
     subscriptionStatus: user.subscription_status,
+    permissions: [],
+    isAdmin: false,
   };
 }
 

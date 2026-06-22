@@ -37,6 +37,7 @@ export const env = {
     domain: e.AUTH0_DOMAIN ?? '',
     audience: e.AUTH0_AUDIENCE ?? '',
     planClaim: e.AUTH0_PLAN_CLAIM ?? '',
+    permissionsClaim: e.AUTH0_PERMISSIONS_CLAIM ?? 'permissions',
     growthEmails: csv(e.GROWTH_PLAN_EMAILS),
     enterpriseEmails: csv(e.ENTERPRISE_PLAN_EMAILS),
   },

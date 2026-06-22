@@ -20,6 +20,13 @@ import {
 } from '@vpat/backend';
 import {
   type AccountSummary,
+  type AdminClientDetail,
+  type AdminClientSummary,
+  type AdminOverview,
+  type AdminReportSummary,
+  type AdminSupportRequestDetail,
+  type AdminSupportRequestSummary,
+  type AuditEventRecord,
   AUTO,
   type AuthMode,
   type CrawlScope,
@@ -29,6 +36,7 @@ import {
   type SupportRequestCategory,
   type SupportRequestDetail,
   type SupportRequestRecord,
+  type SupportRequestStatus,
   type SupportMessageRecord,
   type ReportDetail,
   type ReportStatus,
@@ -37,6 +45,8 @@ import {
   type SubscriptionPlan,
   type WcagTarget,
 } from '@vpat/shared';
+
+const ACTIVE_SUBSCRIPTION_STATUSES = new Set(['active', 'trialing']);
 
 function derivePlan(email: string | null, planHint: SubscriptionPlan | null): SubscriptionPlan {
   if (planHint) return planHint;
@@ -80,7 +90,7 @@ export async function findOrCreateUser(
 
 export function getUserRow(userId: string): Promise<UserRow | null> {
   return queryOne<UserRow>(
-    `SELECT id, email, plan, billing_email, stripe_customer_id, stripe_subscription_id, stripe_price_id, subscription_status
+    `SELECT id, email, plan, billing_email, stripe_customer_id, stripe_subscription_id, stripe_price_id, subscription_status, created_at
      FROM users WHERE id = $1`,
     [userId],
   );
@@ -88,7 +98,7 @@ export function getUserRow(userId: string): Promise<UserRow | null> {
 
 export function getUserByStripeCustomerId(customerId: string): Promise<UserRow | null> {
   return queryOne<UserRow>(
-    `SELECT id, email, plan, billing_email, stripe_customer_id, stripe_subscription_id, stripe_price_id, subscription_status
+    `SELECT id, email, plan, billing_email, stripe_customer_id, stripe_subscription_id, stripe_price_id, subscription_status, created_at
      FROM users WHERE stripe_customer_id = $1`,
     [customerId],
   );
@@ -120,6 +130,32 @@ export async function createReport(
     [env.demoOrgId, userId, domain, wcagTarget, scope],
   );
   return row!.id;
+}
+
+export async function recordAuditEvent(input: {
+  actorUserId?: string | null;
+  actorEmail?: string | null;
+  orgId?: string | null;
+  action: string;
+  targetType: string;
+  targetId?: string | null;
+  subject: string;
+  metadata?: Record<string, unknown>;
+}): Promise<void> {
+  await query(
+    `INSERT INTO audit_events (org_id, actor_user_id, actor_email, action, target_type, target_id, subject, metadata)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)`,
+    [
+      input.orgId ?? env.demoOrgId,
+      input.actorUserId ?? null,
+      input.actorEmail ?? null,
+      input.action,
+      input.targetType,
+      input.targetId ?? null,
+      input.subject,
+      JSON.stringify(input.metadata ?? {}),
+    ],
+  );
 }
 
 export function getReportRow(id: string, userId: string): Promise<ReportRow | null> {
@@ -271,6 +307,474 @@ async function loadPages(scanId: string): Promise<{ url: string; title: string; 
   return rows.map((r) => ({ url: r.url, title: r.title ?? r.url, isAuth: r.is_auth }));
 }
 
+async function loadAuditEventsByTarget(targetType: string, targetIds: string[]): Promise<AuditEventRecord[]> {
+  if (!targetIds.length) return [];
+  const rows = await query<{
+    id: string;
+    action: string;
+    target_type: string;
+    target_id: string | null;
+    actor_user_id: string | null;
+    actor_email: string | null;
+    subject: string;
+    metadata: Record<string, unknown>;
+    created_at: Date;
+  }>(
+    `SELECT id, action, target_type, target_id, actor_user_id, actor_email, subject, metadata, created_at
+     FROM audit_events
+     WHERE target_type = $1 AND target_id = ANY($2::text[])
+     ORDER BY created_at DESC`,
+    [targetType, targetIds],
+  );
+  return rows.map((row) => ({
+    id: row.id,
+    action: row.action,
+    targetType: row.target_type,
+    targetId: row.target_id,
+    actorUserId: row.actor_user_id,
+    actorEmail: row.actor_email,
+    subject: row.subject,
+    metadata: row.metadata ?? {},
+    createdAt: row.created_at.toISOString(),
+  }));
+}
+
+function adminClientSummaryFromRow(row: {
+  id: string;
+  email: string;
+  billing_email: string | null;
+  plan: SubscriptionPlan;
+  subscription_status: string | null;
+  stripe_customer_id: string | null;
+  stripe_subscription_id: string | null;
+  report_count: string;
+  open_support_requests: string;
+  created_at: Date;
+  last_activity_at: Date | null;
+}): AdminClientSummary {
+  return {
+    id: row.id,
+    email: row.email,
+    billingEmail: row.billing_email,
+    plan: row.plan,
+    subscriptionStatus: row.subscription_status,
+    hasActiveSubscription: ACTIVE_SUBSCRIPTION_STATUSES.has(row.subscription_status ?? ''),
+    reportCount: Number(row.report_count ?? '0'),
+    openSupportRequests: Number(row.open_support_requests ?? '0'),
+    createdAt: row.created_at.toISOString(),
+    lastActivityAt: row.last_activity_at ? row.last_activity_at.toISOString() : null,
+    stripeCustomerId: row.stripe_customer_id,
+    stripeSubscriptionId: row.stripe_subscription_id,
+  };
+}
+
+function adminSupportSummaryFromRow(row: {
+  request_id: string;
+  category: SupportRequestCategory;
+  status: SupportRequestStatus;
+  subject: string;
+  created_at: Date;
+  user_id: string;
+  email: string;
+  billing_email: string | null;
+  plan: SubscriptionPlan;
+  last_message_at: Date | null;
+  last_message_preview: string | null;
+}): AdminSupportRequestSummary {
+  return {
+    request: {
+      id: row.request_id,
+      category: row.category,
+      status: row.status,
+      subject: row.subject,
+      createdAt: row.created_at.toISOString(),
+    },
+    clientId: row.user_id,
+    clientEmail: row.email,
+    billingEmail: row.billing_email,
+    plan: row.plan,
+    lastMessageAt: row.last_message_at ? row.last_message_at.toISOString() : null,
+    lastMessagePreview: row.last_message_preview,
+  };
+}
+
+export async function getAdminOverview(): Promise<AdminOverview> {
+  const row = await queryOne<{
+    total_clients: string;
+    active_subscriptions: string;
+    past_due_subscriptions: string;
+    active_reports: string;
+    open_support_requests: string;
+  }>(
+    `SELECT
+       COUNT(*)::text AS total_clients,
+       COUNT(*) FILTER (WHERE subscription_status IN ('active','trialing'))::text AS active_subscriptions,
+       COUNT(*) FILTER (WHERE subscription_status IN ('past_due','unpaid'))::text AS past_due_subscriptions,
+       (SELECT COUNT(*)::text FROM reports WHERE status <> 'final') AS active_reports,
+       (SELECT COUNT(*)::text FROM support_requests WHERE status IN ('open','pending')) AS open_support_requests
+     FROM users`,
+  );
+  return {
+    totalClients: Number(row?.total_clients ?? '0'),
+    activeSubscriptions: Number(row?.active_subscriptions ?? '0'),
+    pastDueSubscriptions: Number(row?.past_due_subscriptions ?? '0'),
+    activeReports: Number(row?.active_reports ?? '0'),
+    openSupportRequests: Number(row?.open_support_requests ?? '0'),
+  };
+}
+
+export async function listAdminClients(): Promise<AdminClientSummary[]> {
+  const rows = await query<{
+    id: string;
+    email: string;
+    billing_email: string | null;
+    plan: SubscriptionPlan;
+    subscription_status: string | null;
+    stripe_customer_id: string | null;
+    stripe_subscription_id: string | null;
+    report_count: string;
+    open_support_requests: string;
+    created_at: Date;
+    last_activity_at: Date | null;
+  }>(
+    `SELECT
+       u.id,
+       u.email,
+       u.billing_email,
+       u.plan,
+       u.subscription_status,
+       u.stripe_customer_id,
+       u.stripe_subscription_id,
+       COUNT(DISTINCT r.id)::text AS report_count,
+       COUNT(DISTINCT sr.id) FILTER (WHERE sr.status IN ('open','pending'))::text AS open_support_requests,
+       u.created_at,
+       GREATEST(
+         u.created_at,
+         MAX(r.created_at),
+         MAX(sr.updated_at),
+         MAX(e.created_at)
+       ) AS last_activity_at
+     FROM users u
+     LEFT JOIN reports r ON r.created_by = u.id
+     LEFT JOIN support_requests sr ON sr.user_id = u.id
+     LEFT JOIN exports e ON e.report_id = r.id
+     GROUP BY u.id
+     ORDER BY last_activity_at DESC NULLS LAST, u.created_at DESC`,
+  );
+  return rows.map(adminClientSummaryFromRow);
+}
+
+export async function getAdminClientDetail(clientId: string): Promise<AdminClientDetail | null> {
+  const clientRow = await queryOne<{
+    id: string;
+    email: string;
+    billing_email: string | null;
+    plan: SubscriptionPlan;
+    subscription_status: string | null;
+    stripe_customer_id: string | null;
+    stripe_subscription_id: string | null;
+    report_count: string;
+    open_support_requests: string;
+    created_at: Date;
+    last_activity_at: Date | null;
+  }>(
+    `SELECT
+       u.id,
+       u.email,
+       u.billing_email,
+       u.plan,
+       u.subscription_status,
+       u.stripe_customer_id,
+       u.stripe_subscription_id,
+       COUNT(DISTINCT r.id)::text AS report_count,
+       COUNT(DISTINCT sr.id) FILTER (WHERE sr.status IN ('open','pending'))::text AS open_support_requests,
+       u.created_at,
+       GREATEST(
+         u.created_at,
+         MAX(r.created_at),
+         MAX(sr.updated_at),
+         MAX(e.created_at)
+       ) AS last_activity_at
+     FROM users u
+     LEFT JOIN reports r ON r.created_by = u.id
+     LEFT JOIN support_requests sr ON sr.user_id = u.id
+     LEFT JOIN exports e ON e.report_id = r.id
+     WHERE u.id = $1
+     GROUP BY u.id`,
+    [clientId],
+  );
+  if (!clientRow) return null;
+  const reportRows = await query<
+    ReportRow & {
+      client_id: string | null;
+      client_email: string | null;
+      latest_scan_state: ScanRow['state'] | null;
+      latest_scan_started_at: Date | null;
+      latest_scan_finished_at: Date | null;
+    }
+  >(
+    `SELECT
+       r.*,
+       u.id AS client_id,
+       u.email AS client_email,
+       s.state AS latest_scan_state,
+       s.started_at AS latest_scan_started_at,
+       s.finished_at AS latest_scan_finished_at
+     FROM reports r
+     LEFT JOIN users u ON u.id = r.created_by
+     LEFT JOIN LATERAL (
+       SELECT state, started_at, finished_at
+       FROM scans
+       WHERE report_id = r.id
+       ORDER BY started_at DESC NULLS LAST, id DESC
+       LIMIT 1
+     ) s ON true
+     WHERE r.created_by = $1
+     ORDER BY r.created_at DESC`,
+    [clientId],
+  );
+  const supportRows = await query<{
+    request_id: string;
+    category: SupportRequestCategory;
+    status: SupportRequestStatus;
+    subject: string;
+    created_at: Date;
+    user_id: string;
+    email: string;
+    billing_email: string | null;
+    plan: SubscriptionPlan;
+    last_message_at: Date | null;
+    last_message_preview: string | null;
+  }>(
+    `SELECT
+       sr.id AS request_id,
+       sr.category,
+       sr.status,
+       sr.subject,
+       sr.created_at,
+       u.id AS user_id,
+       u.email,
+       u.billing_email,
+       u.plan,
+       MAX(srm.created_at) AS last_message_at,
+       (
+         SELECT body
+         FROM support_request_messages
+         WHERE support_request_id = sr.id
+         ORDER BY created_at DESC
+         LIMIT 1
+       ) AS last_message_preview
+     FROM support_requests sr
+     JOIN users u ON u.id = sr.user_id
+     LEFT JOIN support_request_messages srm ON srm.support_request_id = sr.id
+     WHERE sr.user_id = $1
+     GROUP BY sr.id, u.id
+     ORDER BY COALESCE(MAX(srm.created_at), sr.updated_at, sr.created_at) DESC`,
+    [clientId],
+  );
+  const auditEvents = await query<{
+    id: string;
+    action: string;
+    target_type: string;
+    target_id: string | null;
+    actor_user_id: string | null;
+    actor_email: string | null;
+    subject: string;
+    metadata: Record<string, unknown>;
+    created_at: Date;
+  }>(
+    `SELECT id, action, target_type, target_id, actor_user_id, actor_email, subject, metadata, created_at
+     FROM audit_events
+     WHERE target_id = $1 OR actor_user_id = $1
+     ORDER BY created_at DESC
+     LIMIT 50`,
+    [clientId],
+  );
+  return {
+    client: adminClientSummaryFromRow(clientRow),
+    reports: reportRows.map((row): AdminReportSummary => ({
+      report: rowToReport(row),
+      clientId: row.client_id,
+      clientEmail: row.client_email,
+      latestScanState: row.latest_scan_state,
+      latestScanStartedAt: row.latest_scan_started_at ? row.latest_scan_started_at.toISOString() : null,
+      latestScanFinishedAt: row.latest_scan_finished_at ? row.latest_scan_finished_at.toISOString() : null,
+    })),
+    supportRequests: supportRows.map(adminSupportSummaryFromRow),
+    auditEvents: auditEvents.map((row) => ({
+      id: row.id,
+      action: row.action,
+      targetType: row.target_type,
+      targetId: row.target_id,
+      actorUserId: row.actor_user_id,
+      actorEmail: row.actor_email,
+      subject: row.subject,
+      metadata: row.metadata ?? {},
+      createdAt: row.created_at.toISOString(),
+    })),
+  };
+}
+
+export async function listAdminReports(): Promise<AdminReportSummary[]> {
+  const rows = await query<
+    ReportRow & {
+      client_id: string | null;
+      client_email: string | null;
+      latest_scan_state: ScanRow['state'] | null;
+      latest_scan_started_at: Date | null;
+      latest_scan_finished_at: Date | null;
+    }
+  >(
+    `SELECT
+       r.*,
+       u.id AS client_id,
+       u.email AS client_email,
+       s.state AS latest_scan_state,
+       s.started_at AS latest_scan_started_at,
+       s.finished_at AS latest_scan_finished_at
+     FROM reports r
+     LEFT JOIN users u ON u.id = r.created_by
+     LEFT JOIN LATERAL (
+       SELECT state, started_at, finished_at
+       FROM scans
+       WHERE report_id = r.id
+       ORDER BY started_at DESC NULLS LAST, id DESC
+       LIMIT 1
+     ) s ON true
+     ORDER BY r.created_at DESC`,
+  );
+  return rows.map((row) => ({
+    report: rowToReport(row),
+    clientId: row.client_id,
+    clientEmail: row.client_email,
+    latestScanState: row.latest_scan_state,
+    latestScanStartedAt: row.latest_scan_started_at ? row.latest_scan_started_at.toISOString() : null,
+    latestScanFinishedAt: row.latest_scan_finished_at ? row.latest_scan_finished_at.toISOString() : null,
+  }));
+}
+
+export async function listAdminSupportRequests(): Promise<AdminSupportRequestSummary[]> {
+  const rows = await query<{
+    request_id: string;
+    category: SupportRequestCategory;
+    status: SupportRequestStatus;
+    subject: string;
+    created_at: Date;
+    user_id: string;
+    email: string;
+    billing_email: string | null;
+    plan: SubscriptionPlan;
+    last_message_at: Date | null;
+    last_message_preview: string | null;
+  }>(
+    `SELECT
+       sr.id AS request_id,
+       sr.category,
+       sr.status,
+       sr.subject,
+       sr.created_at,
+       u.id AS user_id,
+       u.email,
+       u.billing_email,
+       u.plan,
+       MAX(srm.created_at) AS last_message_at,
+       (
+         SELECT body
+         FROM support_request_messages
+         WHERE support_request_id = sr.id
+         ORDER BY created_at DESC
+         LIMIT 1
+       ) AS last_message_preview
+     FROM support_requests sr
+     JOIN users u ON u.id = sr.user_id
+     LEFT JOIN support_request_messages srm ON srm.support_request_id = sr.id
+     GROUP BY sr.id, u.id
+     ORDER BY CASE WHEN sr.status IN ('open','pending') THEN 0 ELSE 1 END,
+              COALESCE(MAX(srm.created_at), sr.updated_at, sr.created_at) DESC`,
+  );
+  return rows.map(adminSupportSummaryFromRow);
+}
+
+export async function getAdminSupportRequestDetail(requestId: string): Promise<AdminSupportRequestDetail | null> {
+  const row = await queryOne<{
+    request_id: string;
+    category: SupportRequestCategory;
+    status: SupportRequestStatus;
+    subject: string;
+    created_at: Date;
+    user_id: string;
+    email: string;
+    billing_email: string | null;
+    plan: SubscriptionPlan;
+    subscription_status: string | null;
+    stripe_customer_id: string | null;
+    stripe_subscription_id: string | null;
+    user_created_at: Date;
+    report_count: string;
+    open_support_requests: string;
+    last_activity_at: Date | null;
+  }>(
+    `SELECT
+       sr.id AS request_id,
+       sr.category,
+       sr.status,
+       sr.subject,
+       sr.created_at,
+       u.id AS user_id,
+       u.email,
+       u.billing_email,
+       u.plan,
+       u.subscription_status,
+       u.stripe_customer_id,
+       u.stripe_subscription_id,
+       u.created_at AS user_created_at,
+       (SELECT COUNT(*)::text FROM reports WHERE created_by = u.id) AS report_count,
+       (SELECT COUNT(*)::text FROM support_requests WHERE user_id = u.id AND status IN ('open','pending')) AS open_support_requests,
+       GREATEST(
+         u.created_at,
+         (SELECT MAX(created_at) FROM reports WHERE created_by = u.id),
+         (SELECT MAX(updated_at) FROM support_requests WHERE user_id = u.id)
+       ) AS last_activity_at
+     FROM support_requests sr
+     JOIN users u ON u.id = sr.user_id
+     WHERE sr.id = $1`,
+    [requestId],
+  );
+  if (!row) return null;
+  const messages = await query<SupportMessageRow>(
+    `SELECT id, support_request_id, author_role, body, created_at
+     FROM support_request_messages
+     WHERE support_request_id = $1
+     ORDER BY created_at ASC`,
+    [requestId],
+  );
+  const auditEvents = await loadAuditEventsByTarget('support_request', [requestId]);
+  return {
+    client: adminClientSummaryFromRow({
+      id: row.user_id,
+      email: row.email,
+      billing_email: row.billing_email,
+      plan: row.plan,
+      subscription_status: row.subscription_status,
+      stripe_customer_id: row.stripe_customer_id,
+      stripe_subscription_id: row.stripe_subscription_id,
+      report_count: row.report_count,
+      open_support_requests: row.open_support_requests,
+      created_at: row.user_created_at,
+      last_activity_at: row.last_activity_at,
+    }),
+    request: {
+      id: row.request_id,
+      category: row.category,
+      status: row.status,
+      subject: row.subject,
+      createdAt: row.created_at.toISOString(),
+    },
+    messages: messages.map(rowToSupportMessage),
+    auditEvents,
+  };
+}
+
 export async function getReportDetail(id: string, userId: string): Promise<ReportDetail | null> {
   const reportRow = await getReportRow(id, userId);
   if (!reportRow) return null;
@@ -395,6 +899,7 @@ export async function createSupportRequest(
      VALUES ($1, 'customer', $2)`,
     [row!.id, message],
   );
+  await query(`UPDATE support_requests SET updated_at = now() WHERE id = $1`, [row!.id]);
   return rowToSupportRequest(row!);
 }
 
@@ -435,5 +940,37 @@ export async function addSupportRequestMessage(
      RETURNING id, support_request_id, author_role, body, created_at`,
     [requestId, body],
   );
+  await query(`UPDATE support_requests SET status = 'open', updated_at = now() WHERE id = $1`, [requestId]);
   return rowToSupportMessage(message!);
+}
+
+export async function addAdminSupportRequestMessage(
+  requestId: string,
+  body: string,
+): Promise<SupportMessageRecord | null> {
+  const request = await queryOne<{ id: string }>(`SELECT id FROM support_requests WHERE id = $1`, [requestId]);
+  if (!request) return null;
+  const message = await queryOne<SupportMessageRow>(
+    `INSERT INTO support_request_messages (support_request_id, author_role, body)
+     VALUES ($1, 'support', $2)
+     RETURNING id, support_request_id, author_role, body, created_at`,
+    [requestId, body],
+  );
+  await query(`UPDATE support_requests SET status = 'pending', updated_at = now() WHERE id = $1`, [requestId]);
+  return rowToSupportMessage(message!);
+}
+
+export async function updateSupportRequestStatus(
+  requestId: string,
+  status: SupportRequestStatus,
+): Promise<SupportRequestRecord | null> {
+  const row = await queryOne<SupportRequestRow>(
+    `UPDATE support_requests
+     SET status = $2,
+         updated_at = now()
+     WHERE id = $1
+     RETURNING id, category, status, subject, created_at`,
+    [requestId, status],
+  );
+  return row ? rowToSupportRequest(row) : null;
 }

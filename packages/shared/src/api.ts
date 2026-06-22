@@ -69,14 +69,17 @@ export interface AccountSummary {
   canManageBilling: boolean;
   hasActiveSubscription: boolean;
   subscriptionStatus: string | null;
+  permissions: string[];
+  isAdmin: boolean;
 }
 
 export type SupportRequestCategory = 'billing' | 'report' | 'technical' | 'general';
+export type SupportRequestStatus = 'open' | 'pending' | 'resolved' | 'closed';
 
 export interface SupportRequestRecord {
   id: string;
   category: SupportRequestCategory;
-  status: 'open' | 'closed';
+  status: SupportRequestStatus;
   subject: string;
   createdAt: string;
 }
@@ -91,6 +94,74 @@ export interface SupportMessageRecord {
 export interface SupportRequestDetail {
   request: SupportRequestRecord;
   messages: SupportMessageRecord[];
+}
+
+export interface AdminOverview {
+  totalClients: number;
+  activeSubscriptions: number;
+  pastDueSubscriptions: number;
+  activeReports: number;
+  openSupportRequests: number;
+}
+
+export interface AdminClientSummary {
+  id: string;
+  email: string;
+  billingEmail: string | null;
+  plan: SubscriptionPlan;
+  subscriptionStatus: string | null;
+  hasActiveSubscription: boolean;
+  reportCount: number;
+  openSupportRequests: number;
+  createdAt: string;
+  lastActivityAt: string | null;
+  stripeCustomerId: string | null;
+  stripeSubscriptionId: string | null;
+}
+
+export interface AdminReportSummary {
+  report: ReportRecord;
+  clientId: string | null;
+  clientEmail: string | null;
+  latestScanState: ScanState | null;
+  latestScanStartedAt: string | null;
+  latestScanFinishedAt: string | null;
+}
+
+export interface AdminSupportRequestSummary {
+  request: SupportRequestRecord;
+  clientId: string;
+  clientEmail: string;
+  billingEmail: string | null;
+  plan: SubscriptionPlan;
+  lastMessageAt: string | null;
+  lastMessagePreview: string | null;
+}
+
+export interface AuditEventRecord {
+  id: string;
+  action: string;
+  targetType: string;
+  targetId: string | null;
+  actorUserId: string | null;
+  actorEmail: string | null;
+  subject: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface AdminClientDetail {
+  client: AdminClientSummary;
+  reports: AdminReportSummary[];
+  supportRequests: AdminSupportRequestSummary[];
+  auditEvents: AuditEventRecord[];
+}
+
+export interface AdminSupportRequestDetail {
+  client: AdminClientSummary;
+  request: SupportRequestRecord;
+  messages: SupportMessageRecord[];
+  auditEvents: AuditEventRecord[];
 }
 
 /* ---------- requests / responses ---------- */
@@ -128,6 +199,22 @@ export interface CreateSupportMessageRequest {
 
 export interface CreateSupportMessageResponse {
   message: SupportMessageRecord;
+}
+
+export interface UpdateSupportRequestRequest {
+  status: SupportRequestStatus;
+}
+
+export interface ListAdminClientsResponse {
+  clients: AdminClientSummary[];
+}
+
+export interface ListAdminReportsResponse {
+  reports: AdminReportSummary[];
+}
+
+export interface ListAdminSupportRequestsResponse {
+  requests: AdminSupportRequestSummary[];
 }
 
 /** Step-2 credentials are write-only: stored in Secrets Manager, never returned. */

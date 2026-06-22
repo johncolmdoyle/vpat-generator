@@ -1,4 +1,4 @@
-import Fastify, { type FastifyReply } from 'fastify';
+import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
 import rawBody from 'fastify-raw-body';
 import {
@@ -11,14 +11,22 @@ import {
   rowToScan,
 } from '@vpat/backend';
 import type {
+  AdminClientDetail,
+  AdminOverview,
+  AdminSupportRequestDetail,
   CreateSupportMessageRequest,
   CreateSupportMessageResponse,
+  UpdateSupportRequestRequest,
   CreateCheckoutRequest,
   CreatePortalRequest,
   CreateReportRequest,
   CreateSupportRequestRequest,
   ExportRequest,
+  ListAdminClientsResponse,
+  ListAdminReportsResponse,
+  ListAdminSupportRequestsResponse,
   ListSupportRequestsResponse,
+  SupportRequestRecord,
   SupportRequestDetail,
   ScanJobMessage,
   StartScanRequest,
@@ -39,6 +47,13 @@ import {
 import { buildExport } from './export.js';
 import { validateAccessToken } from './auth.js';
 
+const ADMIN_PERMISSIONS = ['read:admin', 'read:clients', 'read:reports', 'read:support', 'read:audit', 'write:support'];
+const SUPPORT_WRITE_PERMISSIONS = ['write:support', 'read:admin'];
+
+function hasAnyPermission(permissions: string[], allowed: string[]) {
+  return permissions.includes('admin:all') || allowed.some((permission) => permissions.includes(permission));
+}
+
 export function buildServer() {
   const app = Fastify({ logger: true });
   app.register(cors, { origin: true });
@@ -54,6 +69,7 @@ export function buildServer() {
       auth0Sub: claims.sub,
       email: claims.email,
       userId: await store.findOrCreateUser(claims.sub, claims.email, claims.planHint),
+      permissions: claims.permissions,
     };
   });
 
@@ -62,7 +78,11 @@ export function buildServer() {
   app.get('/api/account', async (req, reply) => {
     const account = await store.getAccountSummary(req.currentUser!.userId);
     if (!account) return reply.code(404).send({ error: 'account not found' });
-    return account;
+    return {
+      ...account,
+      permissions: req.currentUser!.permissions,
+      isAdmin: hasAnyPermission(req.currentUser!.permissions, ADMIN_PERMISSIONS),
+    };
   });
 
   async function requireActiveSubscription(userId: string, reply: FastifyReply) {
@@ -82,6 +102,14 @@ export function buildServer() {
     return account;
   }
 
+  async function requireAdmin(req: FastifyRequest, reply: FastifyReply, allowed = ADMIN_PERMISSIONS) {
+    if (!hasAnyPermission(req.currentUser!.permissions, allowed)) {
+      await reply.code(403).send({ error: 'admin permission required' });
+      return false;
+    }
+    return true;
+  }
+
   app.post<{ Body: CreateCheckoutRequest }>(
     '/api/billing/checkout',
     async (req, reply) => {
@@ -98,7 +126,14 @@ export function buildServer() {
     async (req, reply) => {
       if (!billingEnabled()) return reply.code(503).send({ error: 'billing is not configured' });
       if (!req.query.session_id) return reply.code(400).send({ error: 'session_id required' });
-      return { account: await confirmCheckoutSession(req.currentUser!.userId, req.query.session_id) };
+      const account = await confirmCheckoutSession(req.currentUser!.userId, req.query.session_id);
+      return {
+        account: {
+          ...account,
+          permissions: req.currentUser!.permissions,
+          isAdmin: hasAnyPermission(req.currentUser!.permissions, ADMIN_PERMISSIONS),
+        },
+      };
     },
   );
 
@@ -172,6 +207,15 @@ export function buildServer() {
         .send({ error: `plan limit reached: ${account.activeReportLimit} active reports on ${account.plan}` });
     }
     const reportId = await store.createReport(req.currentUser!.userId, domain, wcagTarget ?? 'AA', scope ?? 'auto');
+    await store.recordAuditEvent({
+      actorUserId: req.currentUser!.userId,
+      actorEmail: req.currentUser!.email,
+      action: 'report.created',
+      targetType: 'report',
+      targetId: reportId,
+      subject: `Created report for ${domain}`,
+      metadata: { domain, wcagTarget: wcagTarget ?? 'AA', scope: scope ?? 'auto' },
+    });
     return { reportId };
   });
 
@@ -212,6 +256,15 @@ export function buildServer() {
       }
 
       await store.setReportStatus(reportRow.id, 'scanning');
+      await store.recordAuditEvent({
+        actorUserId: req.currentUser!.userId,
+        actorEmail: req.currentUser!.email,
+        action: 'scan.started',
+        targetType: 'report',
+        targetId: reportRow.id,
+        subject: `Started ${authMode} scan for ${reportRow.domain}`,
+        metadata: { scanId, authMode, scope: reportRow.scope },
+      });
 
       const job: ScanJobMessage = {
         scanId,
@@ -234,6 +287,15 @@ export function buildServer() {
       if (!reportRow) return reply.code(404).send({ error: 'report not found' });
       if (!(await requireActiveSubscription(req.currentUser!.userId, reply))) return;
       await store.updateReport(req.params.id, req.body ?? {});
+      await store.recordAuditEvent({
+        actorUserId: req.currentUser!.userId,
+        actorEmail: req.currentUser!.email,
+        action: 'report.updated',
+        targetType: 'report',
+        targetId: req.params.id,
+        subject: 'Updated report metadata',
+        metadata: req.body ?? {},
+      });
       const detail = await store.getReportDetail(req.params.id, req.currentUser!.userId);
       return detail!.report;
     },
@@ -242,6 +304,14 @@ export function buildServer() {
   app.post<{ Params: { id: string } }>('/api/reports/:id/approve-all', async (req, reply) => {
     if (!(await requireActiveSubscription(req.currentUser!.userId, reply))) return;
     await store.approveAll(req.currentUser!.userId, req.params.id);
+    await store.recordAuditEvent({
+      actorUserId: req.currentUser!.userId,
+      actorEmail: req.currentUser!.email,
+      action: 'report.approved_all',
+      targetType: 'report',
+      targetId: req.params.id,
+      subject: 'Approved all report findings',
+    });
     return { ok: true };
   });
 
@@ -258,6 +328,15 @@ export function buildServer() {
       await s3Put(key, artifact.buffer, artifact.contentType);
       await store.recordExport(req.params.id, format, key, artifact.filename);
       await store.setReportStatus(req.params.id, 'final');
+      await store.recordAuditEvent({
+        actorUserId: req.currentUser!.userId,
+        actorEmail: req.currentUser!.email,
+        action: 'report.exported',
+        targetType: 'report',
+        targetId: req.params.id,
+        subject: `Exported report as ${format}`,
+        metadata: { format, filename: artifact.filename },
+      });
       const url = await s3PresignGet(key);
       return { url, filename: artifact.filename };
     },
@@ -316,6 +395,15 @@ export function buildServer() {
       if (!(await requireActiveSubscription(req.currentUser!.userId, reply))) return;
       const updated = await store.updateFinding(req.currentUser!.userId, req.params.id, req.body ?? {});
       if (!updated) return reply.code(404).send({ error: 'not found' });
+      await store.recordAuditEvent({
+        actorUserId: req.currentUser!.userId,
+        actorEmail: req.currentUser!.email,
+        action: 'finding.updated',
+        targetType: 'finding',
+        targetId: req.params.id,
+        subject: `Updated finding ${updated.id}`,
+        metadata: (req.body ?? {}) as Record<string, unknown>,
+      });
       return updated;
     },
   );
@@ -323,6 +411,14 @@ export function buildServer() {
   app.post<{ Params: { id: string } }>('/api/findings/:id/approve', async (req, reply) => {
     if (!(await requireActiveSubscription(req.currentUser!.userId, reply))) return;
     await store.approveFinding(req.currentUser!.userId, req.params.id);
+    await store.recordAuditEvent({
+      actorUserId: req.currentUser!.userId,
+      actorEmail: req.currentUser!.email,
+      action: 'finding.approved',
+      targetType: 'finding',
+      targetId: req.params.id,
+      subject: `Approved finding ${req.params.id}`,
+    });
     return { ok: true };
   });
 
@@ -347,9 +443,17 @@ export function buildServer() {
       }
       if (!subject) return reply.code(400).send({ error: 'subject required' });
       if (!message) return reply.code(400).send({ error: 'message required' });
-      return {
-        request: await store.createSupportRequest(req.currentUser!.userId, category, subject, message),
-      };
+      const request = await store.createSupportRequest(req.currentUser!.userId, category, subject, message);
+      await store.recordAuditEvent({
+        actorUserId: req.currentUser!.userId,
+        actorEmail: req.currentUser!.email,
+        action: 'support.created',
+        targetType: 'support_request',
+        targetId: request.id,
+        subject: `Created ${category} support request`,
+        metadata: { category, subject },
+      });
+      return { request };
     },
   );
 
@@ -360,7 +464,95 @@ export function buildServer() {
       if (!body) return reply.code(400).send({ error: 'message body required' });
       const message = await store.addSupportRequestMessage(req.currentUser!.userId, req.params.id, body);
       if (!message) return reply.code(404).send({ error: 'support request not found' });
+      await store.recordAuditEvent({
+        actorUserId: req.currentUser!.userId,
+        actorEmail: req.currentUser!.email,
+        action: 'support.customer_replied',
+        targetType: 'support_request',
+        targetId: req.params.id,
+        subject: 'Customer added a support reply',
+      });
       return { message };
+    },
+  );
+
+  app.get('/api/admin/overview', async (req, reply): Promise<AdminOverview | void> => {
+    if (!(await requireAdmin(req, reply))) return;
+    return store.getAdminOverview();
+  });
+
+  app.get('/api/admin/clients', async (req, reply): Promise<ListAdminClientsResponse | void> => {
+    if (!(await requireAdmin(req, reply))) return;
+    return { clients: await store.listAdminClients() };
+  });
+
+  app.get<{ Params: { id: string } }>('/api/admin/clients/:id', async (req, reply): Promise<AdminClientDetail | void> => {
+    if (!(await requireAdmin(req, reply))) return;
+    const detail = await store.getAdminClientDetail(req.params.id);
+    if (!detail) return reply.code(404).send({ error: 'client not found' });
+    return detail;
+  });
+
+  app.get('/api/admin/reports', async (req, reply): Promise<ListAdminReportsResponse | void> => {
+    if (!(await requireAdmin(req, reply))) return;
+    return { reports: await store.listAdminReports() };
+  });
+
+  app.get('/api/admin/support-requests', async (req, reply): Promise<ListAdminSupportRequestsResponse | void> => {
+    if (!(await requireAdmin(req, reply))) return;
+    return { requests: await store.listAdminSupportRequests() };
+  });
+
+  app.get<{ Params: { id: string } }>(
+    '/api/admin/support-requests/:id',
+    async (req, reply): Promise<AdminSupportRequestDetail | void> => {
+      if (!(await requireAdmin(req, reply))) return;
+      const detail = await store.getAdminSupportRequestDetail(req.params.id);
+      if (!detail) return reply.code(404).send({ error: 'support request not found' });
+      return detail;
+    },
+  );
+
+  app.post<{ Params: { id: string }; Body: CreateSupportMessageRequest }>(
+    '/api/admin/support-requests/:id/messages',
+    async (req, reply): Promise<CreateSupportMessageResponse | void> => {
+      if (!(await requireAdmin(req, reply, SUPPORT_WRITE_PERMISSIONS))) return;
+      const body = req.body?.body?.trim() ?? '';
+      if (!body) return reply.code(400).send({ error: 'message body required' });
+      const message = await store.addAdminSupportRequestMessage(req.params.id, body);
+      if (!message) return reply.code(404).send({ error: 'support request not found' });
+      await store.recordAuditEvent({
+        actorUserId: req.currentUser!.userId,
+        actorEmail: req.currentUser!.email,
+        action: 'support.admin_replied',
+        targetType: 'support_request',
+        targetId: req.params.id,
+        subject: 'Admin replied to support request',
+      });
+      return { message };
+    },
+  );
+
+  app.patch<{ Params: { id: string }; Body: UpdateSupportRequestRequest }>(
+    '/api/admin/support-requests/:id',
+    async (req, reply): Promise<SupportRequestRecord | void> => {
+      if (!(await requireAdmin(req, reply, SUPPORT_WRITE_PERMISSIONS))) return;
+      const status = req.body?.status;
+      if (!status || !['open', 'pending', 'resolved', 'closed'].includes(status)) {
+        return reply.code(400).send({ error: 'valid support status required' });
+      }
+      const updated = await store.updateSupportRequestStatus(req.params.id, status);
+      if (!updated) return reply.code(404).send({ error: 'support request not found' });
+      await store.recordAuditEvent({
+        actorUserId: req.currentUser!.userId,
+        actorEmail: req.currentUser!.email,
+        action: 'support.status_changed',
+        targetType: 'support_request',
+        targetId: req.params.id,
+        subject: `Changed support status to ${status}`,
+        metadata: { status },
+      });
+      return updated;
     },
   );
 
