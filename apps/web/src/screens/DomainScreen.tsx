@@ -33,9 +33,13 @@ const pillStyle = (on: boolean) => ({
 export function DomainScreen({
   state,
   onNext,
+  blockedMessage,
+  onUpgrade,
 }: {
   state: WizardForm;
   onNext: (v: { domain: string; level: WcagTarget; scope: CrawlScope }) => void;
+  blockedMessage?: string | null;
+  onUpgrade?: (() => void) | null;
 }) {
   const [domain, setDomain] = useState(state.domain ?? '');
   const [level, setLevel] = useState<WcagTarget>(state.level ?? 'AA');
@@ -125,7 +129,31 @@ export function DomainScreen({
         </div>
       </div>
 
-      <NavBar back={false} onNext={commit} disabled={!valid} nextLabel="Set up access" />
+      {blockedMessage && (
+        <div
+          role="alert"
+          style={{
+            marginTop: 18,
+            padding: '13px 15px',
+            background: 'var(--warn-bg)',
+            border: '1px solid color-mix(in oklab, var(--warn) 30%, transparent)',
+            borderRadius: 'var(--radius-sm)',
+            color: 'var(--warn)',
+            fontSize: 13,
+          }}
+        >
+          {blockedMessage}
+          {onUpgrade && (
+            <div style={{ marginTop: 12 }}>
+              <button className="btn btn-primary btn-sm" onClick={onUpgrade}>
+                Upgrade plan
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      <NavBar back={false} onNext={commit} disabled={!valid || !!blockedMessage} nextLabel="Set up access" />
     </div>
   );
 }

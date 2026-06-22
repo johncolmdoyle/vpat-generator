@@ -31,6 +31,9 @@ export type CrawlScope = 'auto' | 'single' | 'sitemap';
 /** Whether the scan authenticates into gated pages. */
 export type AuthMode = 'public' | 'auth';
 
+/** Subscription/entitlement tier for the workspace. */
+export type SubscriptionPlan = 'starter' | 'growth' | 'enterprise';
+
 /** A single piece of supporting evidence for a finding. */
 export interface Evidence {
   type: 'issue' | 'pass';

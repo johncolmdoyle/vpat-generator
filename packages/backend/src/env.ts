@@ -1,6 +1,11 @@
 /** Central env config for the backend services. Defaults target local compose. */
 
 const e = process.env;
+const csv = (value: string | undefined) =>
+  (value ?? '')
+    .split(',')
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
 
 export const env = {
   databaseUrl: e.DATABASE_URL ?? 'postgres://vpat:vpat@localhost:5432/vpat',
@@ -9,10 +14,10 @@ export const env = {
     region: e.AWS_REGION ?? 'us-east-1',
     /** LocalStack endpoint in compose; undefined ⇒ real AWS. */
     endpoint: e.AWS_ENDPOINT_URL || undefined,
-    accessKeyId: e.AWS_ACCESS_KEY_ID ?? 'test',
-    secretAccessKey: e.AWS_SECRET_ACCESS_KEY ?? 'test',
+    accessKeyId: e.AWS_ACCESS_KEY_ID || undefined,
+    secretAccessKey: e.AWS_SECRET_ACCESS_KEY || undefined,
     /** LocalStack S3 needs path-style addressing. */
-    forcePathStyle: true,
+    forcePathStyle: Boolean(e.AWS_ENDPOINT_URL),
   },
 
   s3Bucket: e.S3_BUCKET ?? 'vpat-artifacts',
@@ -26,6 +31,23 @@ export const env = {
   anthropic: {
     apiKey: e.ANTHROPIC_API_KEY ?? '',
     model: e.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6',
+  },
+
+  auth0: {
+    domain: e.AUTH0_DOMAIN ?? '',
+    audience: e.AUTH0_AUDIENCE ?? '',
+    planClaim: e.AUTH0_PLAN_CLAIM ?? '',
+    growthEmails: csv(e.GROWTH_PLAN_EMAILS),
+    enterpriseEmails: csv(e.ENTERPRISE_PLAN_EMAILS),
+  },
+
+  appUrl: e.APP_URL ?? 'http://localhost:5173',
+
+  stripe: {
+    secretKey: e.STRIPE_SECRET_KEY ?? '',
+    webhookSecret: e.STRIPE_WEBHOOK_SECRET ?? '',
+    starterPriceId: e.STRIPE_STARTER_PRICE_ID ?? '',
+    growthPriceId: e.STRIPE_GROWTH_PRICE_ID ?? '',
   },
 
   /** Single demo tenant seeded by the schema. */

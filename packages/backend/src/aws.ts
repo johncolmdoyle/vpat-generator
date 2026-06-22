@@ -19,8 +19,16 @@ import { env } from './env.js';
 const common = {
   region: env.aws.region,
   endpoint: env.aws.endpoint,
-  credentials: { accessKeyId: env.aws.accessKeyId, secretAccessKey: env.aws.secretAccessKey },
 };
+
+const staticCredentials =
+  env.aws.accessKeyId && env.aws.secretAccessKey
+    ? { accessKeyId: env.aws.accessKeyId, secretAccessKey: env.aws.secretAccessKey }
+    : undefined;
+
+if (staticCredentials) {
+  Object.assign(common, { credentials: staticCredentials });
+}
 
 export const s3 = new S3Client({ ...common, forcePathStyle: env.aws.forcePathStyle });
 export const sqs = new SQSClient(common);

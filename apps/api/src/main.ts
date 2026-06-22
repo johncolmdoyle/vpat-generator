@@ -1,7 +1,9 @@
 import { waitForDb, migrate } from '@vpat/backend';
+import { assertAuthConfigured } from './auth.js';
 import { buildServer, env } from './server.js';
 
 async function main() {
+  assertAuthConfigured();
   await waitForDb();
   await migrate();
   const app = buildServer();

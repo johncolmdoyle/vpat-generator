@@ -3,7 +3,21 @@ import { env } from './env.js';
 
 const { Pool } = pg;
 
-export const pool = new Pool({ connectionString: env.databaseUrl, max: 10 });
+const parsedDatabaseUrl = new URL(env.databaseUrl);
+const sslMode = parsedDatabaseUrl.searchParams.get('sslmode');
+const sslFlag = parsedDatabaseUrl.searchParams.get('ssl');
+const needsSsl = sslMode === 'require' || sslFlag === 'true';
+
+if (needsSsl) {
+  parsedDatabaseUrl.searchParams.delete('sslmode');
+  parsedDatabaseUrl.searchParams.delete('ssl');
+}
+
+export const pool = new Pool({
+  connectionString: parsedDatabaseUrl.toString(),
+  max: 10,
+  ssl: needsSsl ? { rejectUnauthorized: false } : undefined,
+});
 
 /** Tagged query helper returning typed rows. */
 export async function query<T extends pg.QueryResultRow = pg.QueryResultRow>(
@@ -36,7 +50,17 @@ export async function migrate(): Promise<void> {
     ALTER TABLE reports ADD COLUMN IF NOT EXISTS evaluator_org     TEXT;
     ALTER TABLE reports ADD COLUMN IF NOT EXISTS evaluation_start  DATE;
     ALTER TABLE reports ADD COLUMN IF NOT EXISTS evaluation_end    DATE;
+    ALTER TABLE users   ADD COLUMN IF NOT EXISTS auth0_subject     TEXT;
+    ALTER TABLE users   ADD COLUMN IF NOT EXISTS plan              TEXT NOT NULL DEFAULT 'starter';
+    ALTER TABLE users   ADD COLUMN IF NOT EXISTS billing_email         TEXT;
+    ALTER TABLE users   ADD COLUMN IF NOT EXISTS stripe_customer_id    TEXT;
+    ALTER TABLE users   ADD COLUMN IF NOT EXISTS stripe_subscription_id TEXT;
+    ALTER TABLE users   ADD COLUMN IF NOT EXISTS stripe_price_id        TEXT;
+    ALTER TABLE users   ADD COLUMN IF NOT EXISTS subscription_status    TEXT;
   `);
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_auth0_subject_idx ON users(auth0_subject)`);
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_stripe_customer_idx ON users(stripe_customer_id)`);
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_stripe_subscription_idx ON users(stripe_subscription_id)`);
 }
 
 /** Block until Postgres accepts connections (compose ordering safety net). */

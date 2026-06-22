@@ -2,7 +2,17 @@
    These populate the official VPAT header + attestation block in the exports.
    The report stays a DRAFT; the named evaluator is responsible for approval. */
 import { useState } from 'react';
-import { DEFAULT_EVALUATION_METHODS, emptyReportMeta, type ReportMeta } from '@vpat/shared';
+import {
+  DEFAULT_EVALUATION_METHODS,
+  PAGE_PRIORITY,
+  PLATFORM_GUIDES,
+  RECORDING_GUIDANCE,
+  TEST_PROCEDURE,
+  emptyReportMeta,
+  type Finding,
+  type PageInfo,
+  type ReportMeta,
+} from '@vpat/shared';
 import { Icons } from '../ui/icons.js';
 import { NavBar } from '../ui/components.js';
 
@@ -94,14 +104,22 @@ function TextField({ id, label, value, onChange, type = 'text', placeholder, spa
 export function DetailsScreen({
   state,
   domain,
+  findings,
+  pages,
   onNext,
   onBack,
 }: {
   state: ReportMeta | null;
   domain: string;
+  findings: Finding[];
+  pages: PageInfo[];
   onNext: (meta: ReportMeta) => void;
   onBack: () => void;
 }) {
+  const [platform, setPlatform] = useState<'windows' | 'mac'>('windows');
+  const guide = PLATFORM_GUIDES.find((g) => g.id === platform)!;
+  // Criteria with no automated signal / low confidence depend entirely on this pass.
+  const toVerify = findings.filter((f) => !f.obsolete && f.confidence < 0.72);
   const [m, setM] = useState<ReportMeta>(() => {
     const base = state ?? emptyReportMeta(domain);
     return {
@@ -128,7 +146,180 @@ export function DetailsScreen({
         approval before publishing.
       </p>
 
+      {/* ---- manual evaluation guide ---- */}
       <div className="card" style={{ marginTop: 26 }}>
+        <div className="row between wrap" style={{ gap: 12, marginBottom: 6 }}>
+          <div className="row" style={{ gap: 9 }}>
+            <span style={{ color: 'var(--accent)' }}>
+              <Icons.shield size={18} />
+            </span>
+            <span style={{ fontWeight: 600, fontSize: 15 }}>How to perform the manual evaluation</span>
+          </div>
+          <div className="row" style={{ gap: 6 }} role="tablist" aria-label="Platform">
+            {PLATFORM_GUIDES.map((g) => {
+              const on = g.id === platform;
+              return (
+                <button
+                  key={g.id}
+                  role="tab"
+                  aria-selected={on}
+                  onClick={() => setPlatform(g.id)}
+                  style={{
+                    padding: '7px 14px',
+                    borderRadius: 'var(--radius-pill)',
+                    fontSize: 13,
+                    fontWeight: 600,
+                    border: on ? '1.5px solid var(--accent)' : '1px solid var(--border-strong)',
+                    background: on ? 'color-mix(in oklab, var(--accent) 10%, var(--surface))' : 'var(--surface)',
+                    color: on ? 'var(--accent)' : 'var(--text-muted)',
+                  }}
+                >
+                  {g.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <p className="faint" style={{ fontSize: 13, marginTop: 0 }}>
+          The automated scan covers only part of WCAG. Do this manual pass on real assistive technology, then record
+          what you used below. Testing with <strong>{guide.screenReader}</strong> in <strong>{guide.browser}</strong>.
+        </p>
+
+        {/* setup */}
+        <div className="micro muted" style={{ marginTop: 16, marginBottom: 8 }}>
+          Set up ({guide.label})
+        </div>
+        <ol style={{ margin: 0, paddingLeft: 20, fontSize: 13.5, lineHeight: 1.6 }}>
+          {guide.setup.map((s, i) => (
+            <li key={i} style={{ marginBottom: 4 }}>
+              {s}
+            </li>
+          ))}
+        </ol>
+
+        {/* command reference */}
+        <div className="micro muted" style={{ marginTop: 16, marginBottom: 8 }}>
+          Screen-reader commands you'll use
+        </div>
+        <div className="panel" style={{ padding: 0, overflow: 'hidden' }}>
+          {guide.commands.map((c, i) => (
+            <div
+              key={c.action}
+              className="row between"
+              style={{ gap: 12, padding: '8px 13px', borderTop: i ? 'var(--hair)' : 'none' }}
+            >
+              <span style={{ fontSize: 13 }}>{c.action}</span>
+              <kbd className="mono tag" style={{ flex: 'none' }}>
+                {c.keys}
+              </kbd>
+            </div>
+          ))}
+        </div>
+
+        {/* pages to test */}
+        <div className="micro muted" style={{ marginTop: 18, marginBottom: 8 }}>
+          Pages to test {pages.length > 0 && `· ${pages.length} discovered`}
+        </div>
+        {pages.length > 0 ? (
+          <div className="col" style={{ gap: 5 }}>
+            {pages.map((p) => (
+              <div
+                key={p.url}
+                className="row"
+                style={{ gap: 10, padding: '8px 12px', background: 'var(--surface-2)', borderRadius: 'var(--radius-sm)', border: 'var(--hair)' }}
+              >
+                <Icons.page size={15} className="faint" />
+                <span className="mono" style={{ fontSize: 12.5, flex: 'none' }}>
+                  {p.url}
+                </span>
+                <span className="faint" style={{ fontSize: 12.5, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {p.title}
+                </span>
+                {p.isAuth && (
+                  <span className="badge b-na" style={{ fontSize: 10.5, flex: 'none' }}>
+                    sign-in
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="faint" style={{ fontSize: 13, margin: 0 }}>
+            Test a representative page of each type below (sign in with your test credentials for gated areas).
+          </p>
+        )}
+        <details style={{ marginTop: 8 }}>
+          <summary className="faint" style={{ fontSize: 12.5, cursor: 'pointer' }}>
+            Which page types matter and why
+          </summary>
+          <ul style={{ margin: '8px 0 0', paddingLeft: 20, fontSize: 13, lineHeight: 1.55 }}>
+            {PAGE_PRIORITY.map((p) => (
+              <li key={p.type} style={{ marginBottom: 3 }}>
+                <strong>{p.type}</strong> — <span className="faint">{p.why}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+
+        {/* procedure */}
+        <div className="micro muted" style={{ marginTop: 18, marginBottom: 8 }}>
+          What to check on each page
+        </div>
+        <div className="col" style={{ gap: 6 }}>
+          {TEST_PROCEDURE.map((area, idx) => (
+            <details key={area.title} open={idx === 0} style={{ border: 'var(--hair)', borderRadius: 'var(--radius-sm)', padding: '10px 13px' }}>
+              <summary style={{ fontWeight: 600, fontSize: 13.5, cursor: 'pointer' }}>{area.title}</summary>
+              <ul style={{ margin: '8px 0 8px', paddingLeft: 20, fontSize: 13, lineHeight: 1.55 }}>
+                {area.steps.map((s, i) => (
+                  <li key={i} style={{ marginBottom: 3 }}>
+                    {s}
+                  </li>
+                ))}
+              </ul>
+              <div className="row wrap" style={{ gap: 5 }}>
+                <span className="faint" style={{ fontSize: 11 }}>
+                  Covers:
+                </span>
+                {area.criteria.map((c) => (
+                  <span key={c} className="tag">
+                    {c}
+                  </span>
+                ))}
+              </div>
+            </details>
+          ))}
+        </div>
+
+        {/* prioritized criteria from the automated pass */}
+        {toVerify.length > 0 && (
+          <>
+            <div className="micro muted" style={{ marginTop: 18, marginBottom: 8 }}>
+              Prioritize these {toVerify.length} criteria — flagged by the scan as needing manual verification
+            </div>
+            <div className="row wrap" style={{ gap: 6 }}>
+              {toVerify.map((f) => (
+                <span key={f.report + f.id} className="badge b-warn" style={{ fontSize: 11 }} title={f.name}>
+                  {f.id} {f.name}
+                </span>
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* recording */}
+        <div className="micro muted" style={{ marginTop: 18, marginBottom: 8 }}>
+          Record your results
+        </div>
+        <ul style={{ margin: 0, paddingLeft: 20, fontSize: 13, lineHeight: 1.55 }}>
+          {RECORDING_GUIDANCE.map((s, i) => (
+            <li key={i} style={{ marginBottom: 3 }}>
+              {s}
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <div className="card" style={{ marginTop: 16 }}>
         <div className="micro muted" style={{ marginBottom: 14 }}>
           Product
         </div>

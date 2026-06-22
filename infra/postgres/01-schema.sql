@@ -12,7 +12,14 @@ CREATE TABLE organizations (
 CREATE TABLE users (
   id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id  UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-  email   TEXT NOT NULL
+  auth0_subject TEXT UNIQUE,
+  plan    TEXT NOT NULL DEFAULT 'starter' CHECK (plan IN ('starter','growth','enterprise')),
+  email   TEXT NOT NULL,
+  billing_email TEXT,
+  stripe_customer_id TEXT UNIQUE,
+  stripe_subscription_id TEXT UNIQUE,
+  stripe_price_id TEXT,
+  subscription_status TEXT
 );
 
 CREATE TABLE reports (

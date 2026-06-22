@@ -1,5 +1,6 @@
 /** Postgres data access for the API. */
 import {
+  toAccountSummary,
   env,
   query,
   queryOne,
@@ -11,8 +12,10 @@ import {
   type ScanRow,
   type FindingRow,
   type EvidenceRow,
+  type UserRow,
 } from '@vpat/backend';
 import {
+  type AccountSummary,
   AUTO,
   type AuthMode,
   type CrawlScope,
@@ -23,24 +26,97 @@ import {
   type ReportStatus,
   type SequencedScanEvent,
   type ScanEvent,
+  type SubscriptionPlan,
   type WcagTarget,
 } from '@vpat/shared';
 
-export async function createReport(domain: string, wcagTarget: WcagTarget, scope: CrawlScope): Promise<string> {
+function derivePlan(email: string | null, planHint: SubscriptionPlan | null): SubscriptionPlan {
+  if (planHint) return planHint;
+  const lower = email?.trim().toLowerCase() ?? '';
+  if (lower && env.auth0.enterpriseEmails.includes(lower)) return 'enterprise';
+  if (lower && env.auth0.growthEmails.includes(lower)) return 'growth';
+  return 'starter';
+}
+
+export async function findOrCreateUser(
+  auth0Sub: string,
+  email: string | null,
+  planHint: SubscriptionPlan | null,
+): Promise<string> {
+  const fallbackEmail = `${auth0Sub.replace(/[^a-zA-Z0-9._-]/g, '_')}@auth0.local`;
+  const plan = derivePlan(email, planHint);
   const row = await queryOne<{ id: string }>(
-    `INSERT INTO reports (org_id, created_by, domain, wcag_target, scope, status)
-     VALUES ($1, $2, $3, $4, $5, 'draft') RETURNING id`,
-    [env.demoOrgId, env.demoUserId, domain, wcagTarget, scope],
+    `INSERT INTO users (org_id, auth0_subject, email, plan)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (auth0_subject)
+     DO UPDATE SET
+       email = EXCLUDED.email,
+       billing_email = COALESCE(users.billing_email, EXCLUDED.email),
+       plan = CASE
+         WHEN users.stripe_subscription_id IS NULL THEN EXCLUDED.plan
+         ELSE users.plan
+       END
+     RETURNING id`,
+    [env.demoOrgId, auth0Sub, email ?? fallbackEmail, plan],
   );
   return row!.id;
 }
 
-export function getReportRow(id: string): Promise<ReportRow | null> {
-  return queryOne<ReportRow>(`SELECT * FROM reports WHERE id = $1`, [id]);
+export function getUserRow(userId: string): Promise<UserRow | null> {
+  return queryOne<UserRow>(
+    `SELECT id, email, plan, billing_email, stripe_customer_id, stripe_subscription_id, stripe_price_id, subscription_status
+     FROM users WHERE id = $1`,
+    [userId],
+  );
 }
 
-export function getScanRow(id: string): Promise<ScanRow | null> {
-  return queryOne<ScanRow>(`SELECT * FROM scans WHERE id = $1`, [id]);
+export function getUserByStripeCustomerId(customerId: string): Promise<UserRow | null> {
+  return queryOne<UserRow>(
+    `SELECT id, email, plan, billing_email, stripe_customer_id, stripe_subscription_id, stripe_price_id, subscription_status
+     FROM users WHERE stripe_customer_id = $1`,
+    [customerId],
+  );
+}
+
+export async function getAccountSummary(userId: string): Promise<AccountSummary | null> {
+  const user = await getUserRow(userId);
+  if (!user) return null;
+  return toAccountSummary(user, await countActiveReports(userId));
+}
+
+export async function countActiveReports(userId: string): Promise<number> {
+  const row = await queryOne<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM reports WHERE created_by = $1 AND status <> 'final'`,
+    [userId],
+  );
+  return Number(row?.count ?? '0');
+}
+
+export async function createReport(
+  userId: string,
+  domain: string,
+  wcagTarget: WcagTarget,
+  scope: CrawlScope,
+): Promise<string> {
+  const row = await queryOne<{ id: string }>(
+    `INSERT INTO reports (org_id, created_by, domain, wcag_target, scope, status)
+     VALUES ($1, $2, $3, $4, $5, 'draft') RETURNING id`,
+    [env.demoOrgId, userId, domain, wcagTarget, scope],
+  );
+  return row!.id;
+}
+
+export function getReportRow(id: string, userId: string): Promise<ReportRow | null> {
+  return queryOne<ReportRow>(`SELECT * FROM reports WHERE id = $1 AND created_by = $2`, [id, userId]);
+}
+
+export function getScanRow(id: string, userId: string): Promise<ScanRow | null> {
+  return queryOne<ScanRow>(
+    `SELECT s.* FROM scans s
+     JOIN reports r ON r.id = s.report_id
+     WHERE s.id = $1 AND r.created_by = $2`,
+    [id, userId],
+  );
 }
 
 export function getLatestScanRow(reportId: string): Promise<ScanRow | null> {
@@ -104,11 +180,50 @@ export async function setReportStatus(id: string, status: ReportStatus): Promise
   await query(`UPDATE reports SET status = $2${finalized} WHERE id = $1`, [id, status]);
 }
 
-export function listReportRows(): Promise<ReportRow[]> {
-  return query<ReportRow>(
-    `SELECT * FROM reports WHERE org_id = $1 ORDER BY created_at DESC`,
-    [env.demoOrgId],
+export async function setStripeCustomer(userId: string, customerId: string, billingEmail: string | null): Promise<void> {
+  await query(
+    `UPDATE users
+     SET stripe_customer_id = $2,
+         billing_email = COALESCE($3, billing_email, email)
+     WHERE id = $1`,
+    [userId, customerId, billingEmail],
   );
+}
+
+export async function applyStripeSubscription(
+  userId: string,
+  patch: {
+    plan: SubscriptionPlan;
+    stripeCustomerId: string | null;
+    stripeSubscriptionId: string | null;
+    stripePriceId: string | null;
+    subscriptionStatus: string | null;
+    billingEmail: string | null;
+  },
+): Promise<void> {
+  await query(
+    `UPDATE users
+     SET plan = $2,
+         stripe_customer_id = COALESCE($3, stripe_customer_id),
+         stripe_subscription_id = $4,
+         stripe_price_id = $5,
+         subscription_status = $6,
+         billing_email = COALESCE($7, billing_email, email)
+     WHERE id = $1`,
+    [
+      userId,
+      patch.plan,
+      patch.stripeCustomerId,
+      patch.stripeSubscriptionId,
+      patch.stripePriceId,
+      patch.subscriptionStatus,
+      patch.billingEmail,
+    ],
+  );
+}
+
+export function listReportRows(userId: string): Promise<ReportRow[]> {
+  return query<ReportRow>(`SELECT * FROM reports WHERE created_by = $1 ORDER BY created_at DESC`, [userId]);
 }
 
 async function loadFindings(reportId: string): Promise<Finding[]> {
@@ -132,20 +247,31 @@ async function loadFindings(reportId: string): Promise<Finding[]> {
   return rows.map((r) => rowToFinding(r, byFinding.get(r.id) ?? []));
 }
 
-export async function getReportDetail(id: string): Promise<ReportDetail | null> {
-  const reportRow = await getReportRow(id);
+async function loadPages(scanId: string): Promise<{ url: string; title: string; isAuth: boolean }[]> {
+  const rows = await query<{ url: string; title: string | null; is_auth: boolean }>(
+    `SELECT url, title, is_auth FROM pages WHERE scan_id = $1 ORDER BY id`,
+    [scanId],
+  );
+  return rows.map((r) => ({ url: r.url, title: r.title ?? r.url, isAuth: r.is_auth }));
+}
+
+export async function getReportDetail(id: string, userId: string): Promise<ReportDetail | null> {
+  const reportRow = await getReportRow(id, userId);
   if (!reportRow) return null;
   const scanRow = await getLatestScanRow(id);
   const findings = await loadFindings(id);
+  const pages = scanRow ? await loadPages(scanRow.id) : [];
   return {
     report: rowToReport(reportRow),
     scan: scanRow ? rowToScan(scanRow) : null,
     findings,
     auto: AUTO,
+    pages,
   };
 }
 
 export async function updateFinding(
+  userId: string,
   findingId: string,
   patch: { status?: ConformanceLevel; remarks?: string },
 ): Promise<Finding | null> {
@@ -160,8 +286,12 @@ export async function updateFinding(
     sets.push(`remarks = $${params.length}`);
   }
   const row = await queryOne<FindingRow>(
-    `UPDATE findings SET ${sets.join(', ')} WHERE id = $1 RETURNING *`,
-    params,
+    `UPDATE findings f
+     SET ${sets.join(', ')}
+     FROM reports r
+     WHERE f.id = $1 AND r.id = f.report_id AND r.created_by = $${params.length + 1}
+     RETURNING f.*`,
+    [...params, userId],
   );
   if (!row) return null;
   const evRows = await query<EvidenceRow>(
@@ -171,18 +301,39 @@ export async function updateFinding(
   return rowToFinding(row, evRows.map(evidenceRowTo));
 }
 
-export async function approveFinding(findingId: string): Promise<void> {
-  await query(`UPDATE findings SET approved = true, updated_at = now() WHERE id = $1`, [findingId]);
+export async function approveFinding(userId: string, findingId: string): Promise<void> {
+  await query(
+    `UPDATE findings f
+     SET approved = true, updated_at = now()
+     FROM reports r
+     WHERE f.id = $1 AND r.id = f.report_id AND r.created_by = $2`,
+    [findingId, userId],
+  );
 }
 
-export async function approveAll(reportId: string): Promise<void> {
-  await query(`UPDATE findings SET approved = true, updated_at = now() WHERE report_id = $1`, [reportId]);
+export async function approveAll(userId: string, reportId: string): Promise<void> {
+  await query(
+    `UPDATE findings f
+     SET approved = true, updated_at = now()
+     FROM reports r
+     WHERE r.id = $1 AND r.id = f.report_id AND r.created_by = $2`,
+    [reportId, userId],
+  );
 }
 
-export async function getScanEvents(scanId: string, afterSeq: number): Promise<SequencedScanEvent[]> {
+export async function getScanEvents(
+  userId: string,
+  scanId: string,
+  afterSeq: number,
+): Promise<SequencedScanEvent[]> {
   const rows = await query<{ seq: number; event: ScanEvent }>(
-    `SELECT seq, event FROM scan_events WHERE scan_id = $1 AND seq > $2 ORDER BY seq`,
-    [scanId, afterSeq],
+    `SELECT e.seq, e.event
+     FROM scan_events e
+     JOIN scans s ON s.id = e.scan_id
+     JOIN reports r ON r.id = s.report_id
+     WHERE e.scan_id = $1 AND e.seq > $2 AND r.created_by = $3
+     ORDER BY e.seq`,
+    [scanId, afterSeq, userId],
   );
   return rows.map((r) => ({ seq: r.seq, event: r.event }));
 }

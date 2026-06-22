@@ -28,6 +28,7 @@ import PDFDocument from 'pdfkit';
 import {
   REPORTS,
   TERMS,
+  TEST_PROCEDURE,
   VERSION,
   EDITION,
   DEFAULT_EVALUATION_METHODS,
@@ -268,6 +269,33 @@ async function buildDocx(detail: ReportDetail): Promise<ExportArtifact> {
   children.push(new Paragraph({ text: ATTEST_HEADING, heading: HeadingLevel.HEADING_2 }));
   children.push(new Paragraph({ text: attestationText(r) }));
 
+  // Appendix: the manual procedure backing the attestation.
+  children.push(new Paragraph({ text: '' }));
+  children.push(new Paragraph({ text: 'Appendix A — Manual Test Plan', heading: HeadingLevel.HEADING_2 }));
+  children.push(
+    new Paragraph({
+      children: [
+        new TextRun({
+          text: 'Automated tooling covers only part of WCAG. The pages below were evaluated with assistive technology following this procedure, which backs the attestation above.',
+          italics: true,
+          size: 18,
+        }),
+      ],
+    }),
+  );
+  if (detail.pages.length) {
+    children.push(
+      new Paragraph({
+        children: [new TextRun({ text: 'Pages tested: ', bold: true }), new TextRun({ text: detail.pages.map((p) => p.url).join(', ') })],
+      }),
+    );
+  }
+  for (const area of TEST_PROCEDURE) {
+    children.push(new Paragraph({ text: area.title, heading: HeadingLevel.HEADING_3 }));
+    for (const s of area.steps) children.push(new Paragraph({ text: s, bullet: { level: 0 } }));
+    children.push(new Paragraph({ children: [new TextRun({ text: `Covers: ${area.criteria.join(', ')}`, italics: true, color: '666666', size: 18 })] }));
+  }
+
   const doc = new Document({
     sections: [
       {
@@ -382,6 +410,30 @@ function buildPdf(detail: ReportDetail): Promise<ExportArtifact> {
     doc.font('Helvetica-Bold').fontSize(13).fillColor('#000').text(ATTEST_HEADING);
     doc.moveDown(0.3);
     doc.font('Helvetica').fontSize(10).fillColor('#222').text(attestationText(r), { width: 495 });
+
+    // Appendix: manual test plan.
+    doc.addPage();
+    doc.font('Helvetica-Bold').fontSize(13).fillColor('#000').text('Appendix A — Manual Test Plan');
+    doc.moveDown(0.3);
+    doc
+      .font('Helvetica')
+      .fontSize(9)
+      .fillColor('#444')
+      .text(
+        'Automated tooling covers only part of WCAG. The pages below were evaluated with assistive technology following this procedure, which backs the attestation above.',
+        { width: 495 },
+      );
+    if (detail.pages.length) {
+      doc.moveDown(0.2);
+      doc.font('Helvetica-Bold').fontSize(9).fillColor('#000').text('Pages tested: ', { continued: true }).font('Helvetica').text(detail.pages.map((p) => p.url).join(', '));
+    }
+    for (const area of TEST_PROCEDURE) {
+      doc.moveDown(0.4);
+      doc.font('Helvetica-Bold').fontSize(10.5).fillColor('#000').text(area.title);
+      doc.font('Helvetica').fontSize(9).fillColor('#222');
+      for (const s of area.steps) doc.text(`• ${s}`, { indent: 8, width: 487 });
+      doc.font('Helvetica-Oblique').fontSize(8).fillColor('#666').text(`Covers: ${area.criteria.join(', ')}`, { indent: 8 });
+    }
 
     doc.end();
   });

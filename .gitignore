@@ -7,3 +7,7 @@ dist/
 *.log
 .vite/
 coverage/
+.terraform/
+terraform.tfstate
+terraform.tfstate.*
+*.tfplan

@@ -14,17 +14,25 @@ export function CredentialsScreen({
   state,
   onNext,
   onBack,
+  allowAuthenticatedScan = true,
+  upgradeMessage,
+  onUpgrade,
 }: {
   state: WizardForm;
   onNext: (v: { authMode: AuthMode; user: string; pass: string; loginUrl: string }) => void;
   onBack: () => void;
+  allowAuthenticatedScan?: boolean;
+  upgradeMessage?: string | null;
+  onUpgrade?: (() => void) | null;
 }) {
   const [mode, setMode] = useState<AuthMode>(state.authMode ?? 'public');
   const [user, setUser] = useState(state.user ?? '');
   const [pass, setPass] = useState(state.pass ?? '');
   const [loginUrl, setLoginUrl] = useState(state.loginUrl ?? '/login');
   const [show, setShow] = useState(false);
-  const ok = mode === 'public' || (user.trim() !== '' && pass.trim() !== '');
+  const ok =
+    (mode === 'public' || (user.trim() !== '' && pass.trim() !== '')) &&
+    (mode !== 'auth' || allowAuthenticatedScan);
 
   const commit = () => onNext({ authMode: mode, user, pass, loginUrl });
   const authPages = PAGES.filter((p) => p.auth).length;
@@ -42,7 +50,9 @@ export function CredentialsScreen({
         {MODES.map(([id, Ic, title, d]) => (
           <button
             key={id}
-            onClick={() => setMode(id)}
+            onClick={() => (id === 'auth' && !allowAuthenticatedScan ? setMode('public') : setMode(id))}
+            disabled={id === 'auth' && !allowAuthenticatedScan}
+            aria-disabled={id === 'auth' && !allowAuthenticatedScan}
             style={{
               textAlign: 'left',
               padding: '18px 18px',
@@ -50,7 +60,9 @@ export function CredentialsScreen({
               border: mode === id ? '1.5px solid var(--accent)' : '1px solid var(--border-strong)',
               background: mode === id ? 'color-mix(in oklab, var(--accent) 6%, var(--surface))' : 'var(--surface)',
               boxShadow: mode === id ? 'var(--shadow)' : 'none',
+              opacity: id === 'auth' && !allowAuthenticatedScan ? 0.55 : 1,
               transition: 'all .14s',
+              cursor: id === 'auth' && !allowAuthenticatedScan ? 'not-allowed' : 'pointer',
             }}
           >
             <span style={{ color: mode === id ? 'var(--accent)' : 'var(--text-muted)' }}>
@@ -58,13 +70,37 @@ export function CredentialsScreen({
             </span>
             <div style={{ fontWeight: 600, fontSize: 15, marginTop: 10 }}>{title}</div>
             <div className="faint" style={{ fontSize: 12.5, marginTop: 2 }}>
-              {d}
+              {id === 'auth' && !allowAuthenticatedScan ? 'Growth plan required' : d}
             </div>
           </button>
         ))}
       </div>
 
-      {mode === 'auth' && (
+      {!allowAuthenticatedScan && upgradeMessage && (
+        <div
+          role="note"
+          style={{
+            marginTop: 16,
+            padding: '13px 15px',
+            background: 'var(--surface-2)',
+            border: 'var(--hair)',
+            borderRadius: 'var(--radius-sm)',
+            color: 'var(--text-muted)',
+            fontSize: 13,
+          }}
+        >
+          {upgradeMessage}
+          {onUpgrade && (
+            <div style={{ marginTop: 12 }}>
+              <button className="btn btn-primary btn-sm" onClick={onUpgrade}>
+                Upgrade to Growth
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {mode === 'auth' && allowAuthenticatedScan && (
         <div className="card screen" style={{ marginTop: 16, padding: 'var(--pad)' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <div className="field">

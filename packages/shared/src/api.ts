@@ -11,6 +11,7 @@ import type {
   ConformanceLevel,
   CrawlScope,
   Finding,
+  SubscriptionPlan,
   WcagTarget,
 } from './types.js';
 
@@ -58,6 +59,16 @@ export interface ScanRecord {
   finishedAt: string | null;
 }
 
+/** Authenticated user's current plan entitlements + usage. */
+export interface AccountSummary {
+  plan: SubscriptionPlan;
+  activeReports: number;
+  activeReportLimit: number | null;
+  canUseAuthenticatedScans: boolean;
+  billingEmail: string | null;
+  canManageBilling: boolean;
+}
+
 /* ---------- requests / responses ---------- */
 
 export interface CreateReportRequest {
@@ -80,11 +91,19 @@ export interface StartScanResponse {
   scanId: string;
 }
 
+/** A page the crawl discovered (for the manual test-page list). */
+export interface PageInfo {
+  url: string;
+  title: string;
+  isAuth: boolean;
+}
+
 export interface ReportDetail {
   report: ReportRecord;
   scan: ScanRecord | null;
   findings: Finding[];
   auto: AutoRow[];
+  pages: PageInfo[];
 }
 
 export interface UpdateFindingRequest {
@@ -102,6 +121,24 @@ export interface ExportRequest {
 export interface ExportResponse {
   url: string;
   filename: string;
+}
+
+export type SelfServePlan = Exclude<SubscriptionPlan, 'enterprise'>;
+
+export interface CreateCheckoutRequest {
+  plan: SelfServePlan;
+}
+
+export interface CheckoutSessionResponse {
+  url: string;
+}
+
+export interface ConfirmCheckoutResponse {
+  account: AccountSummary;
+}
+
+export interface CreatePortalRequest {
+  returnPath?: string;
 }
 
 /* ---------- progress stream ---------- */

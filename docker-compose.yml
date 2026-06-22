@@ -61,6 +61,8 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-vpat}:${POSTGRES_PASSWORD:-vpat}@postgres:5432/${POSTGRES_DB:-vpat}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-4-6}
+      AUTH0_DOMAIN: ${AUTH0_DOMAIN:-dev-5iepn3tlte3m2e34.us.auth0.com}
+      AUTH0_AUDIENCE: ${AUTH0_AUDIENCE:-https://api.vpatbuilder.com}
       # Browser-reachable endpoint for presigned S3 download URLs.
       S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:4566}
       PORT: "8080"
@@ -93,6 +95,9 @@ services:
       dockerfile: apps/web/Dockerfile
       args:
         VITE_API_URL: ${VITE_API_URL:-http://localhost:8080}
+        VITE_AUTH0_DOMAIN: ${VITE_AUTH0_DOMAIN:-}
+        VITE_AUTH0_CLIENT_ID: ${VITE_AUTH0_CLIENT_ID:-}
+        VITE_AUTH0_AUDIENCE: ${VITE_AUTH0_AUDIENCE:-}
     ports:
       - "5173:80"
     depends_on:

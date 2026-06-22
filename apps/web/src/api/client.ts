@@ -1,5 +1,10 @@
 /** Typed REST + SSE client for the backend (used only when `hasApi`). */
 import type {
+  AccountSummary,
+  CheckoutSessionResponse,
+  ConfirmCheckoutResponse,
+  CreateCheckoutRequest,
+  CreatePortalRequest,
   CreateReportRequest,
   CreateReportResponse,
   ExportFormat,
@@ -15,9 +20,25 @@ import type {
 } from '@vpat/shared';
 import { API_URL } from '../config.js';
 
+let accessTokenProvider: (() => Promise<string | null>) | null = null;
+
+export function setAccessTokenProvider(provider: (() => Promise<string | null>) | null) {
+  accessTokenProvider = provider;
+}
+
+async function authHeaders(init?: HeadersInit): Promise<Headers> {
+  const headers = new Headers(init);
+  if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+  if (accessTokenProvider) {
+    const token = await accessTokenProvider();
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+  }
+  return headers;
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
+    headers: await authHeaders(init?.headers),
     ...init,
   });
   if (!res.ok) {
@@ -33,6 +54,24 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  getAccount() {
+    return req<AccountSummary>('/api/account');
+  },
+  createCheckout(body: CreateCheckoutRequest) {
+    return req<CheckoutSessionResponse>('/api/billing/checkout', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+  confirmCheckout(sessionId: string) {
+    return req<ConfirmCheckoutResponse>(`/api/billing/checkout/confirm?session_id=${encodeURIComponent(sessionId)}`);
+  },
+  createPortal(body: CreatePortalRequest = {}) {
+    return req<CheckoutSessionResponse>('/api/billing/portal', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
   createReport(body: CreateReportRequest) {
     return req<CreateReportResponse>('/api/reports', { method: 'POST', body: JSON.stringify(body) });
   },
@@ -65,14 +104,44 @@ export const api = {
   },
   /** Subscribe to the scan/draft event stream. Returns an unsubscribe fn. */
   streamScan(scanId: string, onEvent: (e: ScanEvent) => void): () => void {
-    const es = new EventSource(`${API_URL}/api/scans/${scanId}/stream`);
-    es.onmessage = (m) => {
-      try {
-        onEvent(JSON.parse(m.data) as ScanEvent);
-      } catch {
-        /* ignore malformed frame */
+    const controller = new AbortController();
+
+    void (async () => {
+      const res = await fetch(`${API_URL}/api/scans/${scanId}/stream`, {
+        headers: await authHeaders(),
+        signal: controller.signal,
+      });
+      if (!res.ok) throw new Error(`SSE ${res.status}`);
+      if (!res.body) throw new Error('SSE response has no body');
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+
+      while (!controller.signal.aborted) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const frames = buf.split('\n\n');
+        buf = frames.pop() ?? '';
+
+        for (const frame of frames) {
+          const dataLines = frame
+            .split('\n')
+            .filter((line) => line.startsWith('data:'))
+            .map((line) => line.slice(5).trim());
+          if (!dataLines.length) continue;
+          try {
+            onEvent(JSON.parse(dataLines.join('\n')) as ScanEvent);
+          } catch {
+            /* ignore malformed frame */
+          }
+        }
       }
-    };
-    return () => es.close();
+    })().catch((err) => {
+      if (!controller.signal.aborted) console.error('streamScan failed', err);
+    });
+
+    return () => controller.abort();
   },
 };

@@ -38,6 +38,7 @@ export function DownloadScreen({
   reportId,
   onBack,
   onRestart,
+  onExported,
 }: {
   state: WizardForm;
   meta: ReportMeta;
@@ -45,6 +46,7 @@ export function DownloadScreen({
   reportId?: string;
   onBack: () => void;
   onRestart: () => void;
+  onExported?: () => void;
 }) {
   const counts = countsBy(findings);
   const applicable = findings.length - counts['Not Applicable'] - counts['Not Evaluated'];
@@ -109,6 +111,7 @@ export function DownloadScreen({
         .exportReport(reportId, fmt)
         .then((r) => {
           setDownloaded({ name: r.filename, real: true });
+          onExported?.();
           window.open(r.url, '_blank', 'noopener');
         })
         .catch((e: unknown) => {

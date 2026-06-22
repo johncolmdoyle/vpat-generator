@@ -1,5 +1,6 @@
 /** Row ⇄ DTO mappers and the static criteria → finding seed. */
 import {
+  type AccountSummary,
   CRITERIA,
   type ConformanceLevel,
   type Criterion,
@@ -9,6 +10,7 @@ import {
   type ReportRecord,
   type ScanRecord,
   type SectionId,
+  type SubscriptionPlan,
 } from '@vpat/shared';
 
 export interface ReportRow {
@@ -72,6 +74,17 @@ export interface EvidenceRow {
   type: 'issue' | 'pass';
   text: string;
   page_url: string | null;
+}
+
+export interface UserRow {
+  id: string;
+  email: string;
+  plan: SubscriptionPlan;
+  billing_email: string | null;
+  stripe_customer_id: string | null;
+  stripe_subscription_id: string | null;
+  stripe_price_id: string | null;
+  subscription_status: string | null;
 }
 
 /** Normalize a DATE column (pg may hand back a Date or a 'YYYY-MM-DD' string). */
@@ -148,6 +161,22 @@ export function rowToFinding(r: FindingRow, evidence: Evidence[]): Finding {
 
 export function evidenceRowTo(r: EvidenceRow): Evidence {
   return { type: r.type, text: r.text, where: r.page_url ?? '' };
+}
+
+export function toAccountSummary(
+  user: UserRow,
+  activeReports: number,
+): AccountSummary {
+  const activeReportLimit =
+    user.plan === 'starter' ? 2 : user.plan === 'growth' ? 15 : null;
+  return {
+    plan: user.plan,
+    activeReports,
+    activeReportLimit,
+    canUseAuthenticatedScans: user.plan !== 'starter',
+    billingEmail: user.billing_email ?? user.email,
+    canManageBilling: Boolean(user.stripe_customer_id),
+  };
 }
 
 /** The fixed criteria set the worker drafts against (one finding row per criterion). */
