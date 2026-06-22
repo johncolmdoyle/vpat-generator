@@ -1,8 +1,9 @@
-import { waitForDb } from '@vpat/backend';
+import { waitForDb, migrate } from '@vpat/backend';
 import { buildServer, env } from './server.js';
 
 async function main() {
   await waitForDb();
+  await migrate();
   const app = buildServer();
   await app.listen({ host: '0.0.0.0', port: env.apiPort });
   app.log.info(`API listening on :${env.apiPort}`);

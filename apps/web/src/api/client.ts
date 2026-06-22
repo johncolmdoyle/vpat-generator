@@ -6,10 +6,12 @@ import type {
   ExportResponse,
   Finding,
   ReportDetail,
+  ReportRecord,
   ScanEvent,
   StartScanRequest,
   StartScanResponse,
   UpdateFindingRequest,
+  UpdateReportRequest,
 } from '@vpat/shared';
 import { API_URL } from '../config.js';
 
@@ -42,6 +44,9 @@ export const api = {
   },
   getReport(reportId: string) {
     return req<ReportDetail>(`/api/reports/${reportId}`);
+  },
+  updateReport(reportId: string, body: UpdateReportRequest) {
+    return req<ReportRecord>(`/api/reports/${reportId}`, { method: 'PATCH', body: JSON.stringify(body) });
   },
   updateFinding(findingId: string, body: UpdateFindingRequest) {
     return req<Finding>(`/api/findings/${findingId}`, { method: 'PATCH', body: JSON.stringify(body) });

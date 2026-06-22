@@ -58,6 +58,47 @@ export async function createScan(reportId: string, scope: CrawlScope, authMode: 
   return row!.id;
 }
 
+/** Patch publication metadata + attestation. Maps camelCase keys → columns. */
+export async function updateReport(
+  id: string,
+  patch: Partial<import('@vpat/shared').ReportMeta>,
+): Promise<void> {
+  const cols: Record<string, string> = {
+    productName: 'product_name',
+    productVersion: 'product_version',
+    vendorName: 'vendor_name',
+    contactEmail: 'contact_email',
+    productDescription: 'product_description',
+    evaluationMethods: 'evaluation_methods',
+    assistiveTech: 'assistive_tech',
+    testEnvironments: 'test_environments',
+    evaluatorName: 'evaluator_name',
+    evaluatorOrg: 'evaluator_org',
+    evaluationStart: 'evaluation_start',
+    evaluationEnd: 'evaluation_end',
+    notes: 'notes',
+  };
+  const sets: string[] = [];
+  const params: unknown[] = [id];
+  for (const [key, col] of Object.entries(cols)) {
+    const val = (patch as Record<string, unknown>)[key];
+    if (val === undefined) continue;
+    if (col === 'assistive_tech' || col === 'test_environments') {
+      params.push(JSON.stringify(val));
+      sets.push(`${col} = $${params.length}::jsonb`);
+    } else if (col === 'evaluation_start' || col === 'evaluation_end') {
+      // empty string ⇒ NULL date
+      params.push(val === '' ? null : val);
+      sets.push(`${col} = $${params.length}`);
+    } else {
+      params.push(val);
+      sets.push(`${col} = $${params.length}`);
+    }
+  }
+  if (sets.length === 0) return;
+  await query(`UPDATE reports SET ${sets.join(', ')} WHERE id = $1`, params);
+}
+
 export async function setReportStatus(id: string, status: ReportStatus): Promise<void> {
   const finalized = status === 'final' ? ', finalized_at = now()' : '';
   await query(`UPDATE reports SET status = $2${finalized} WHERE id = $1`, [id, status]);

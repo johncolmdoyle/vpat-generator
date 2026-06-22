@@ -20,10 +20,15 @@ function heuristic(c: Criterion, data: CriterionData): Draft {
   }
   const where = [...new Set(data.evidence.map((e) => e.where).filter(Boolean))].join(', ');
   if (data.auto === 0) {
+    // No automated signal ⇒ unverified, not confirmed. Low confidence so the UI flags
+    // it as "worth a closer look" and the evaluator must confirm it manually.
+    const passes = data.evidence.filter((e) => e.type === 'pass');
     return {
       status: CONF.SUPPORTS,
-      remarks: 'No automated violations were detected for this criterion. Manual review recommended.',
-      confidence: 0.8,
+      remarks:
+        (passes.length ? `${passes.map((p) => p.text).join('; ')}. ` : '') +
+        'No automated violations were detected. This criterion requires manual verification with assistive technology before it can be confirmed.',
+      confidence: 0.5,
     };
   }
   if (data.auto <= 5) {

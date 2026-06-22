@@ -146,3 +146,55 @@ export interface WizardForm {
   pass?: string;
   loginUrl?: string;
 }
+
+/**
+ * Editable publication metadata + evaluator attestation captured on the Details step.
+ * These populate the official VPAT 2.5Rev ACR header and the attestation block.
+ *
+ * The report is always issued as a DRAFT: the named evaluator is recorded, but the
+ * responsible party must review and approve before publishing. The attestation fields
+ * are how a real ACR records what manual / assistive-technology testing was performed.
+ */
+export interface ReportMeta {
+  /** Name of Product / Version. */
+  productName: string;
+  productVersion: string;
+  /** Author/vendor company that owns the product. */
+  vendorName: string;
+  /** Contact for accessibility questions about this report. */
+  contactEmail: string;
+  productDescription: string;
+  /** Free-text "Evaluation Methods Used" (prefilled with the methodology). */
+  evaluationMethods: string;
+  /** Assistive technologies used for manual testing (e.g. "NVDA 2024.1", "VoiceOver"). */
+  assistiveTech: string[];
+  /** Test environments (e.g. "Chrome 124 on Windows 11", "Safari 17 on macOS 14"). */
+  testEnvironments: string[];
+  /** Person who performed/owns the evaluation. */
+  evaluatorName: string;
+  evaluatorOrg: string;
+  /** Evaluation period, ISO date strings (yyyy-mm-dd). */
+  evaluationStart: string;
+  evaluationEnd: string;
+  notes: string;
+}
+
+/** A blank metadata object with the product domain prefilled into sensible defaults. */
+export function emptyReportMeta(domain = ''): ReportMeta {
+  const host = domain.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+  return {
+    productName: host,
+    productVersion: '',
+    vendorName: '',
+    contactEmail: host ? `accessibility@${host}` : '',
+    productDescription: '',
+    evaluationMethods: '',
+    assistiveTech: [],
+    testEnvironments: [],
+    evaluatorName: '',
+    evaluatorOrg: '',
+    evaluationStart: '',
+    evaluationEnd: '',
+    notes: '',
+  };
+}

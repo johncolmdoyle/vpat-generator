@@ -30,7 +30,10 @@ export async function runJob(job: ScanJobMessage): Promise<void> {
     const total = criteria.length;
     let drafted = 0;
     for (const c of criteria) {
-      const data = analysis.perCriterion.get(c.id) ?? { auto: c.auto, evidence: c.evidence };
+      // Real scans must never inherit the baked mock evidence: a criterion the scan
+      // didn't flag gets empty data so the draft reflects the actual site, not the demo.
+      const fallback = analysis.mock ? { auto: c.auto, evidence: c.evidence } : { auto: 0, evidence: [] };
+      const data = analysis.perCriterion.get(c.id) ?? fallback;
       const draft = await draftCriterion(c, data, { mock: analysis.mock });
       await insertFinding(job.reportId, job.scanId, c, draft, data, drafted);
       drafted += 1;

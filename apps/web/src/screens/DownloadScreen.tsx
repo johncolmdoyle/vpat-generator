@@ -7,6 +7,7 @@ import {
   type ConformanceLevel,
   type ExportFormat,
   type Finding,
+  type ReportMeta,
   type WizardForm,
 } from '@vpat/shared';
 import { Icons, type IconProps } from '../ui/icons.js';
@@ -32,12 +33,14 @@ const countsBy = (items: Finding[]): Counts =>
 
 export function DownloadScreen({
   state,
+  meta,
   findings,
   reportId,
   onBack,
   onRestart,
 }: {
   state: WizardForm;
+  meta: ReportMeta;
   findings: Finding[];
   reportId?: string;
   onBack: () => void;
@@ -72,19 +75,21 @@ export function DownloadScreen({
   const wcagRow = (ver: string) => ({ ver, a: true, aa: levelRank >= 2, aaa: levelRank >= 3 });
   const wcagRows = [wcagRow('2.0'), wcagRow('2.1'), wcagRow('2.2')];
 
+  const dash = (s: string) => (s && s.trim() ? s : '—');
+  const period =
+    meta.evaluationStart || meta.evaluationEnd ? `${dash(meta.evaluationStart)} – ${dash(meta.evaluationEnd)}` : '—';
   const header: [string, string][] = [
-    ['Name of Product / Version', `${domain} — web platform, v2025.6`],
+    ['Name of Product / Version', `${dash(meta.productName || domain)}${meta.productVersion ? ` — ${meta.productVersion}` : ''}`],
     ['Report Date', today],
-    [
-      'Product Description',
-      'Customer-facing web application: marketing site, product catalog, authenticated account area and support center.',
-    ],
-    ['Contact Information', 'accessibility@' + domain],
-    [
-      'Evaluation Methods Used',
-      'Automated scan (axe-core, WCAG 2.2 ruleset) across 10 pages + AI-assisted manual review with screen-reader and keyboard simulation.',
-    ],
-    ['Notes', 'Draft ACR generated for internal review. Confirm findings before publication.'],
+    ['Vendor / Author Company', dash(meta.vendorName)],
+    ['Product Description', dash(meta.productDescription)],
+    ['Contact Information', dash(meta.contactEmail || `accessibility@${domain}`)],
+    ['Evaluation Methods Used', dash(meta.evaluationMethods)],
+    ['Assistive Technologies Used', meta.assistiveTech.length ? meta.assistiveTech.join('; ') : '—'],
+    ['Test Environment', meta.testEnvironments.length ? meta.testEnvironments.join('; ') : '—'],
+    ['Evaluation Period', period],
+    ['Evaluator', [meta.evaluatorName, meta.evaluatorOrg].filter(Boolean).join(', ') || '—'],
+    ['Notes', dash(meta.notes)],
   ];
 
   const downloads: [string, (p: IconProps) => ReactNode][] = [
@@ -121,7 +126,7 @@ export function DownloadScreen({
       <div className="row" style={{ gap: 12, color: 'var(--ok)' }}>
         <Icons.checkCircle size={26} />
         <div className="eyebrow" style={{ color: 'var(--ok)' }}>
-          Step 06 — Report ready
+          Step 07 — Report ready
         </div>
       </div>
       <h1 className="title" style={{ marginBottom: 6 }}>
@@ -131,6 +136,23 @@ export function DownloadScreen({
         All {findings.length} criteria reviewed and approved across the WCAG 2.2, Section 508 and EN 301 549
         reports. Based on the VPAT® 2.5Rev International Edition.
       </p>
+
+      <div
+        className="row"
+        style={{ gap: 11, marginTop: 18, padding: '13px 15px', background: 'var(--warn-bg)', borderRadius: 'var(--radius-sm)', border: '1px solid color-mix(in oklab, var(--warn) 30%, transparent)' }}
+        role="note"
+      >
+        <span style={{ color: 'var(--warn)', flex: 'none' }}>
+          <Icons.alert size={18} />
+        </span>
+        <span style={{ fontSize: 13, color: 'var(--warn)' }}>
+          <strong>This report is a DRAFT.</strong> It is prepared for{' '}
+          {[meta.evaluatorName, meta.evaluatorOrg].filter(Boolean).join(', ') || 'the named evaluator'} and must be
+          reviewed and approved by the responsible party before it is published or used for procurement. Automated
+          tooling catches only part of all WCAG issues — the attestation records the manual and assistive-technology
+          testing performed.
+        </span>
+      </div>
 
       {/* conformance summary */}
       <div

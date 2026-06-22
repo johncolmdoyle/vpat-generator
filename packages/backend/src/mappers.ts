@@ -20,9 +20,16 @@ export interface ReportRow {
   status: ReportRecord['status'];
   product_name: string | null;
   product_version: string | null;
+  vendor_name: string | null;
   contact_email: string | null;
   product_description: string | null;
   evaluation_methods: string | null;
+  assistive_tech: string[] | null;
+  test_environments: string[] | null;
+  evaluator_name: string | null;
+  evaluator_org: string | null;
+  evaluation_start: Date | string | null;
+  evaluation_end: Date | string | null;
   notes: string | null;
   created_at: Date;
   finalized_at: Date | null;
@@ -67,6 +74,13 @@ export interface EvidenceRow {
   page_url: string | null;
 }
 
+/** Normalize a DATE column (pg may hand back a Date or a 'YYYY-MM-DD' string). */
+function dateOnly(v: Date | string | null): string | null {
+  if (v == null) return null;
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  return String(v).slice(0, 10);
+}
+
 export function rowToReport(r: ReportRow): ReportRecord {
   return {
     id: r.id,
@@ -77,9 +91,16 @@ export function rowToReport(r: ReportRow): ReportRecord {
     status: r.status,
     productName: r.product_name,
     productVersion: r.product_version,
+    vendorName: r.vendor_name,
     contactEmail: r.contact_email,
     productDescription: r.product_description,
     evaluationMethods: r.evaluation_methods,
+    assistiveTech: r.assistive_tech ?? [],
+    testEnvironments: r.test_environments ?? [],
+    evaluatorName: r.evaluator_name,
+    evaluatorOrg: r.evaluator_org,
+    evaluationStart: dateOnly(r.evaluation_start),
+    evaluationEnd: dateOnly(r.evaluation_end),
     notes: r.notes,
     createdAt: r.created_at.toISOString(),
     finalizedAt: r.finalized_at ? r.finalized_at.toISOString() : null,

@@ -15,6 +15,7 @@ import type {
   ScanJobMessage,
   StartScanRequest,
   UpdateFindingRequest,
+  UpdateReportRequest,
 } from '@vpat/shared';
 import * as store from './store.js';
 import { buildExport } from './export.js';
@@ -78,6 +79,17 @@ export function buildServer() {
       await sqsSend(job);
 
       return { scanId };
+    },
+  );
+
+  app.patch<{ Params: { id: string }; Body: UpdateReportRequest }>(
+    '/api/reports/:id',
+    async (req, reply) => {
+      const reportRow = await store.getReportRow(req.params.id);
+      if (!reportRow) return reply.code(404).send({ error: 'report not found' });
+      await store.updateReport(req.params.id, req.body ?? {});
+      const detail = await store.getReportDetail(req.params.id);
+      return detail!.report;
     },
   );
 

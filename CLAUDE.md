@@ -17,14 +17,22 @@ finding, and exports the report.
   (`src/api.ts`: DTOs + the `ScanEvent` stream).
 - `packages/backend` — shared backend infra: env config, Postgres pool, AWS/LocalStack
   clients (S3/SQS/Secrets Manager), and row↔DTO mappers. Imported by api + worker.
-- `apps/web` — React + TypeScript + Vite SPA, the 6-step wizard ("Airy" direction).
-  Runs the mock flow by default; when `VITE_API_URL` is set it drives the real backend
-  (REST + SSE). The mode switch lives in `src/config.ts` (`hasApi`).
-- `apps/api` — Fastify REST + SSE (`/api/...`, `/api/scans/:id/stream`); DOCX/PDF/JSON
-  export to S3 with presigned URLs.
-- `apps/worker` — SQS consumer: Playwright crawl + axe-core (real, with a deterministic
-  mock fallback for unreachable domains) and per-criterion drafting (Claude when
-  `ANTHROPIC_API_KEY` is set, heuristic otherwise). Emits the persisted `ScanEvent`s.
+- `apps/web` — React + TypeScript + Vite SPA, the 7-step wizard ("Airy" direction):
+  Target → Access → Examine → Draft → Review → **Details** → Report. The Details step
+  collects the VPAT header + evaluator attestation (product/vendor, contact, assistive
+  tech used, test environments, evaluator, dates). Runs the mock flow by default; when
+  `VITE_API_URL` is set it drives the real backend (REST + SSE). Switch in `src/config.ts`.
+- `apps/api` — Fastify REST + SSE (`/api/...`, `/api/scans/:id/stream`); `PATCH
+  /api/reports/:id` saves the Details metadata; DOCX/PDF/JSON export to S3 with presigned
+  URLs. `src/export.ts` renders the official VPAT 2.5Rev template (product info, standards,
+  terms, per-criterion conformance tables with EN/508 cross-refs, attestation) — every
+  export is marked **DRAFT**.
+- `apps/worker` — SQS consumer: Playwright crawl + axe-core **plus AT-oriented checks in
+  `src/checks.ts`** (accessible-name computation, scripted keyboard reachability/trap,
+  reflow@320, target-size, landmarks, labels) — the API a screen reader consumes, since
+  native JAWS/NVDA can't run headless. Real scans never inherit mock evidence; untested
+  criteria draft at low confidence ("requires manual verification"). Per-criterion drafting
+  uses Claude when `ANTHROPIC_API_KEY` is set, heuristic otherwise. Emits persisted `ScanEvent`s.
 - `infra/` — Postgres schema (auto-applied), LocalStack bootstrap, nginx SPA config.
 
 ## Commands
@@ -41,6 +49,13 @@ finding, and exports the report.
   Steps 3 and 4 show full history even when reached after the worker has moved on.
 - One worker job runs scan→draft continuously; the UI's Step 3/Step 4 split is a UX gate
   over the same event stream.
+- Report metadata columns are added idempotently by `migrate()` (backend `db.ts`) on API
+  boot, so existing Postgres volumes upgrade without recreating the DB.
+- Presigned download URLs are signed against `S3_PUBLIC_ENDPOINT` (default
+  `http://localhost:4566`) so the browser — not just the in-network API — can fetch them.
+- Reports are always issued as a **DRAFT**: the named evaluator/responsible party reviews
+  and approves before publishing. The automated checks maximize coverage but don't replace
+  the manual + assistive-technology testing recorded in the attestation.
 
 ## Rules
 - The HTML in docs/handoff/design/ is a DESIGN REFERENCE. The production UI lives in
@@ -49,8 +64,9 @@ finding, and exports the report.
   packages should import its types.
 - Only the "Airy" design direction ships. The prototype's tweaks panel and the
   three-direction theming were intentionally dropped.
-- Scan credentials (Step 2) are secrets: TLS in, Secrets Manager, use once, destroy.
-  Never log them, never store in the DB, never send to the LLM. (Backend, not yet built.)
+- Scan credentials (Step 2) are secrets: stored in Secrets Manager (LocalStack), used
+  once by the worker, destroyed after the job. Never log them, never store in the DB,
+  never send to the LLM.
 - This is an accessibility product — the app's own UI must be exemplary (visible focus
   rings, semantic landmarks, labels, keyboard operability, 4.5:1 contrast).
 - Keep the human-approval gate; the AI draft is a starting point, never auto-final.

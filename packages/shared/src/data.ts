@@ -17,6 +17,26 @@ import type {
 export const VERSION = 'VPAT® 2.5Rev';
 export const EDITION = 'International Edition';
 
+/**
+ * Default "Evaluation Methods Used" text describing the tooling this product runs.
+ * Prefilled into the Details form and used as the export fallback. The human evaluator
+ * appends the assistive technologies + environments they tested with.
+ */
+export const DEFAULT_EVALUATION_METHODS = [
+  'Automated testing with axe-core against the WCAG 2.2 ruleset (tags wcag2a, wcag2aa, wcag21aa, wcag22aa).',
+  'Accessibility-tree inspection of accessible name, role and state for interactive controls (the API assistive technologies consume).',
+  'Scripted keyboard-only operation: tab traversal, focus-order and focus-trap detection.',
+  'Focus-visibility, reflow at 320 CSS pixels, and pointer target-size (24×24) measurement.',
+  'AI-assisted drafting of conformance levels and remarks from the collected evidence.',
+  'Manual review and approval of every criterion by the named evaluator (see attestation).',
+].join(' ');
+
+/** Standing disclaimer printed on every exported report. */
+export const DRAFT_DISCLAIMER =
+  'DRAFT — This Accessibility Conformance Report is a draft pending review and approval by the responsible party. ' +
+  'Automated tooling reliably detects only a portion of WCAG issues; conformance claims must be verified by the named ' +
+  'evaluator through manual and assistive-technology testing before this report is published or relied upon.';
+
 /** Conformance level constants. */
 export const CONF = {
   SUPPORTS: 'Supports',

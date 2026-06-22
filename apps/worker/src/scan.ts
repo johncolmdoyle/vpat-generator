@@ -4,6 +4,7 @@
 import { CRITERIA, PAGES, SCAN_PHASES, type Evidence } from '@vpat/shared';
 import type { ScanJobMessage } from '@vpat/shared';
 import type { Emitter } from './events.js';
+import { deepAudit } from './checks.js';
 
 export interface CriterionData {
   auto: number;
@@ -115,6 +116,19 @@ async function realScan(job: ScanJobMessage, emit: Emitter): Promise<AnalysisRes
           perCriterion.set(cid, data);
         }
       }
+
+      // AT-oriented checks beyond axe (accessibility tree, keyboard, reflow, …).
+      const deep = await deepAudit(page, path);
+      for (const [cid, d] of deep) {
+        const data = perCriterion.get(cid) ?? { auto: 0, evidence: [] };
+        data.auto += d.auto;
+        for (const ev of d.evidence) {
+          if (data.evidence.length < 8) data.evidence.push(ev);
+        }
+        perCriterion.set(cid, data);
+        pageIssueCount += d.auto;
+      }
+
       issuesByUrl.set(path, pageIssueCount);
     }
     await context.close();

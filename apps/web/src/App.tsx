@@ -3,10 +3,12 @@
 import { Fragment, useRef, useState } from 'react';
 import {
   CRITERIA,
+  emptyReportMeta,
   toFinding,
   type AuthMode,
   type CrawlScope,
   type Finding,
+  type ReportMeta,
   type WcagTarget,
   type WizardForm,
 } from '@vpat/shared';
@@ -18,6 +20,7 @@ import { CredentialsScreen } from './screens/CredentialsScreen.js';
 import { ExaminingScreen } from './screens/ExaminingScreen.js';
 import { GeneratingScreen } from './screens/GeneratingScreen.js';
 import { ReviewScreen } from './screens/ReviewScreen.js';
+import { DetailsScreen } from './screens/DetailsScreen.js';
 import { DownloadScreen } from './screens/DownloadScreen.js';
 
 const STEPS = [
@@ -26,6 +29,7 @@ const STEPS = [
   { key: 'examine', label: 'Examine' },
   { key: 'generate', label: 'Draft' },
   { key: 'review', label: 'Review' },
+  { key: 'details', label: 'Details' },
   { key: 'report', label: 'Report' },
 ] as const;
 
@@ -41,6 +45,7 @@ export function App() {
   const [reached, setReached] = useState(0);
   const [form, setForm] = useState<WizardForm>({});
   const [findings, setFindings] = useState<Finding[]>(initFindings);
+  const [meta, setMeta] = useState<ReportMeta>(() => emptyReportMeta());
   const [reportId, setReportId] = useState<string | undefined>();
   const [scanId, setScanId] = useState<string | undefined>();
 
@@ -56,6 +61,7 @@ export function App() {
   const restart = () => {
     setForm({});
     setFindings(initFindings());
+    setMeta(emptyReportMeta());
     setReportId(undefined);
     setScanId(undefined);
     reportPromise.current = null;
@@ -68,6 +74,7 @@ export function App() {
 
   const onDomainNext = (v: DomainCommit) => {
     set(v);
+    setMeta((cur) => ({ ...emptyReportMeta(v.domain), ...cur, productName: cur.productName || emptyReportMeta(v.domain).productName, contactEmail: cur.contactEmail || emptyReportMeta(v.domain).contactEmail }));
     if (hasApi) {
       reportPromise.current = api
         .createReport({ domain: v.domain, wcagTarget: v.level, scope: v.scope })
@@ -115,6 +122,15 @@ export function App() {
       return;
     }
     go(4);
+  };
+
+  // Leaving Details: persist the metadata + attestation, then assemble.
+  const onDetailsNext = (m: ReportMeta) => {
+    setMeta(m);
+    if (hasApi && reportId) {
+      api.updateReport(reportId, m).catch((e) => console.error('updateReport failed', e));
+    }
+    go(6);
   };
 
   const key = STEPS[step].key;
@@ -174,12 +190,16 @@ export function App() {
             onBack={() => go(3)}
           />
         )}
+        {key === 'details' && (
+          <DetailsScreen state={meta} domain={form.domain ?? ''} onNext={onDetailsNext} onBack={() => go(4)} />
+        )}
         {key === 'report' && (
           <DownloadScreen
             state={form}
+            meta={meta}
             findings={findings}
             reportId={reportId}
-            onBack={() => go(4)}
+            onBack={() => go(5)}
             onRestart={restart}
           />
         )}

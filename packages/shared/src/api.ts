@@ -30,9 +30,16 @@ export interface ReportRecord {
   status: ReportStatus;
   productName: string | null;
   productVersion: string | null;
+  vendorName: string | null;
   contactEmail: string | null;
   productDescription: string | null;
   evaluationMethods: string | null;
+  assistiveTech: string[];
+  testEnvironments: string[];
+  evaluatorName: string | null;
+  evaluatorOrg: string | null;
+  evaluationStart: string | null;
+  evaluationEnd: string | null;
   notes: string | null;
   createdAt: string;
   finalizedAt: string | null;
@@ -84,6 +91,9 @@ export interface UpdateFindingRequest {
   status?: ConformanceLevel;
   remarks?: string;
 }
+
+/** Patch the report's publication metadata + attestation (the Details step). */
+export type UpdateReportRequest = Partial<import('./types.js').ReportMeta>;
 
 export type ExportFormat = 'pdf' | 'docx' | 'vpat';
 export interface ExportRequest {
