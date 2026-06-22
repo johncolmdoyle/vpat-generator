@@ -111,6 +111,8 @@ const PRICING_TIERS: readonly PricingTier[] = [
   },
 ] as const;
 
+const PENDING_CHECKOUT_STORAGE_KEY = 'accessops.pendingCheckoutPlan';
+
 const FAQS = [
   {
     q: 'What does VPAT Builder actually produce?',
@@ -158,14 +160,41 @@ export function App() {
   return <WizardApp />;
 }
 
+function readPendingCheckoutPlan(): SelfServePlan | null {
+  if (typeof window === 'undefined') return null;
+  const value = window.sessionStorage.getItem(PENDING_CHECKOUT_STORAGE_KEY);
+  return value === 'starter' || value === 'growth' ? value : null;
+}
+
+function writePendingCheckoutPlan(plan: SelfServePlan | null) {
+  if (typeof window === 'undefined') return;
+  if (plan) window.sessionStorage.setItem(PENDING_CHECKOUT_STORAGE_KEY, plan);
+  else window.sessionStorage.removeItem(PENDING_CHECKOUT_STORAGE_KEY);
+}
+
 function AuthenticatedApp() {
   const { error, getAccessTokenSilently, isAuthenticated, isLoading, loginWithRedirect, logout, user } = useAuth0();
   const [account, setAccount] = useState<AccountSummary | null>(null);
   const [billingBusy, setBillingBusy] = useState(false);
+  const [pendingCheckoutPlan, setPendingCheckoutPlan] = useState<SelfServePlan | null>(() => readPendingCheckoutPlan());
+  const checkoutLaunchStarted = useRef(false);
 
-  const signup = () => loginWithRedirect({ authorizationParams: { screen_hint: 'signup' } });
+  const setPendingCheckout = (plan: SelfServePlan | null) => {
+    setPendingCheckoutPlan(plan);
+    writePendingCheckoutPlan(plan);
+    if (!plan) checkoutLaunchStarted.current = false;
+  };
+
+  const signup = (plan: SelfServePlan = 'starter') => {
+    setPendingCheckout(plan);
+    void loginWithRedirect({ authorizationParams: { screen_hint: 'signup' } });
+  };
+  const signupStarter = () => signup('starter');
   const login = () => loginWithRedirect();
-  const signout = () => logout({ logoutParams: { returnTo: window.location.origin } });
+  const signout = () => {
+    setPendingCheckout(null);
+    logout({ logoutParams: { returnTo: window.location.origin } });
+  };
 
   const refreshAccount = () =>
     api
@@ -221,12 +250,20 @@ function AuthenticatedApp() {
     const params = new URLSearchParams(window.location.search);
     const state = params.get('checkout');
     const sessionId = params.get('session_id');
+    if (state === 'cancel') {
+      setPendingCheckout(null);
+      const url = new URL(window.location.href);
+      url.searchParams.delete('checkout');
+      window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+      return;
+    }
     if (state !== 'success' || !sessionId) return;
 
     setBillingBusy(true);
     api
       .confirmCheckout(sessionId)
       .then((res) => {
+        setPendingCheckout(null);
         setAccount(res.account);
         const url = new URL(window.location.href);
         url.searchParams.delete('checkout');
@@ -236,6 +273,29 @@ function AuthenticatedApp() {
       .catch((e) => console.error('confirmCheckout failed', e))
       .finally(() => setBillingBusy(false));
   }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (!hasApi || !isAuthenticated || !account || !pendingCheckoutPlan || billingBusy) return;
+    if (checkoutLaunchStarted.current) return;
+    if (account.canManageBilling) {
+      setPendingCheckout(null);
+      return;
+    }
+
+    checkoutLaunchStarted.current = true;
+    setBillingBusy(true);
+    api
+      .createCheckout({ plan: pendingCheckoutPlan })
+      .then(({ url }) => {
+        setPendingCheckout(null);
+        redirectToUrl(url);
+      })
+      .catch((e) => {
+        console.error('auto createCheckout failed', e);
+        checkoutLaunchStarted.current = false;
+      })
+      .finally(() => setBillingBusy(false));
+  }, [account, billingBusy, isAuthenticated, pendingCheckoutPlan]);
 
   if (isLoading) {
     return (
@@ -279,13 +339,13 @@ function AuthenticatedApp() {
             <button className="btn btn-ghost btn-sm" onClick={login}>
               Log in
             </button>
-            <button className="btn btn-primary btn-sm" onClick={signup}>
+            <button className="btn btn-primary btn-sm" onClick={signupStarter}>
               Sign up
             </button>
           </div>
         }
       >
-        <MarketingSite error={error?.message ?? null} onLogin={login} onSignup={signup} />
+        <MarketingSite error={error?.message ?? null} onLogin={login} onSignup={signupStarter} />
       </MarketingShell>
     );
   }
