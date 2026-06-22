@@ -424,6 +424,11 @@ resource "aws_cloudfront_distribution" "app" {
     target_origin_id       = "web-bucket"
     viewer_protocol_policy = "redirect-to-https"
     compress               = true
+
+    function_association {
+      event_type   = "viewer-request"
+      function_arn = aws_cloudfront_function.spa_rewrite.arn
+    }
   }
 
   ordered_cache_behavior {
@@ -457,20 +462,6 @@ resource "aws_cloudfront_distribution" "app" {
     target_origin_id         = "api-alb"
     viewer_protocol_policy   = "redirect-to-https"
     compress                 = true
-  }
-
-  custom_error_response {
-    error_code            = 403
-    response_code         = 200
-    response_page_path    = "/index.html"
-    error_caching_min_ttl = 0
-  }
-
-  custom_error_response {
-    error_code            = 404
-    response_code         = 200
-    response_page_path    = "/index.html"
-    error_caching_min_ttl = 0
   }
 
   restrictions {
@@ -560,6 +551,29 @@ data "aws_iam_policy_document" "web_bucket_policy" {
 resource "aws_s3_bucket_policy" "web" {
   bucket = aws_s3_bucket.web.id
   policy = data.aws_iam_policy_document.web_bucket_policy.json
+}
+
+resource "aws_cloudfront_function" "spa_rewrite" {
+  name    = "${local.name_prefix}-spa-rewrite"
+  runtime = "cloudfront-js-2.0"
+  publish = true
+  code    = <<-EOF
+    function handler(event) {
+      var request = event.request;
+      var uri = request.uri || "/";
+
+      if (uri === "/health" || uri.startsWith("/api/") || uri.startsWith("/stripe/")) {
+        return request;
+      }
+
+      var lastSegment = uri.substring(uri.lastIndexOf("/") + 1);
+      if (lastSegment.indexOf(".") === -1) {
+        request.uri = "/index.html";
+      }
+
+      return request;
+    }
+  EOF
 }
 
 resource "aws_sqs_queue" "scan_dlq" {

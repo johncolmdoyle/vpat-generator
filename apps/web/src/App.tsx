@@ -269,10 +269,10 @@ function AuthenticatedApp() {
   }, [getAccessTokenSilently]);
 
   useEffect(() => {
-    if (!hasApi) return;
+    if (!hasApi || !isAuthenticated) return;
     void refreshAccount();
     void refreshReports();
-  }, []);
+  }, [isAuthenticated]);
 
   useEffect(() => {
     if (!hasApi || !isAuthenticated) return;

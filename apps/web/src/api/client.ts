@@ -30,6 +30,7 @@ export function setAccessTokenProvider(provider: (() => Promise<string | null>) 
 async function authHeaders(init?: HeadersInit): Promise<Headers> {
   const headers = new Headers(init);
   if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+  if (!headers.has('Accept')) headers.set('Accept', 'application/json');
   if (accessTokenProvider) {
     const token = await accessTokenProvider();
     if (token) headers.set('Authorization', `Bearer ${token}`);
@@ -50,6 +51,13 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
       /* ignore */
     }
     throw new Error(`${init?.method ?? 'GET'} ${path} → ${res.status} ${body}`.trim());
+  }
+  const contentType = res.headers.get('content-type') ?? '';
+  if (!contentType.toLowerCase().includes('application/json')) {
+    const body = await res.text();
+    throw new Error(
+      `${init?.method ?? 'GET'} ${path} expected JSON but got ${contentType || 'unknown content-type'} from ${res.url}: ${body.slice(0, 160)}`.trim(),
+    );
   }
   return (await res.json()) as T;
 }
