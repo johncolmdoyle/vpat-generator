@@ -64,7 +64,11 @@ require_env VITE_AUTH0_DOMAIN
 require_env VITE_AUTH0_CLIENT_ID
 require_env VITE_AUTH0_AUDIENCE
 require_env STRIPE_SECRET_KEY
+require_env STRIPE_STARTER_PRICE_ID
+require_env STRIPE_GROWTH_PRICE_ID
 require_prefix STRIPE_SECRET_KEY "sk_"
+require_prefix STRIPE_STARTER_PRICE_ID "price_"
+require_prefix STRIPE_GROWTH_PRICE_ID "price_"
 
 echo "Setting GitHub Actions secret: AWS_DEPLOY_ROLE_ARN"
 gh secret set AWS_DEPLOY_ROLE_ARN --repo "$REPO" --body "$ROLE_ARN"

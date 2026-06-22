@@ -59,7 +59,11 @@ unset AWS_SECURITY_TOKEN
 : "${VITE_AUTH0_CLIENT_ID:?VITE_AUTH0_CLIENT_ID must be set in .env}"
 : "${VITE_AUTH0_AUDIENCE:?VITE_AUTH0_AUDIENCE must be set in .env}"
 : "${STRIPE_SECRET_KEY:?STRIPE_SECRET_KEY must be set in .env}"
+: "${STRIPE_STARTER_PRICE_ID:?STRIPE_STARTER_PRICE_ID must be set in .env}"
+: "${STRIPE_GROWTH_PRICE_ID:?STRIPE_GROWTH_PRICE_ID must be set in .env}"
 require_prefix STRIPE_SECRET_KEY "sk_"
+require_prefix STRIPE_STARTER_PRICE_ID "price_"
+require_prefix STRIPE_GROWTH_PRICE_ID "price_"
 
 ADMIN_IP="$(curl -fsS https://checkip.amazonaws.com | tr -d '\n')"
 ADMIN_CIDR="${ADMIN_IP}/32"
