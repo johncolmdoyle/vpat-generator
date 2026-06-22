@@ -1,6 +1,32 @@
 /** When VITE_API_URL is set (compose), the app talks to the real backend. Otherwise
  *  it runs the self-contained mock flow (`npm run dev` with no env). */
-export const API_URL = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
+function runtimeApiUrl(): string {
+  const configured = (import.meta.env.VITE_API_URL ?? '').trim().replace(/\/$/, '');
+  if (!configured) return '';
+  if (typeof window === 'undefined') return configured;
+
+  try {
+    const configuredUrl = new URL(configured, window.location.origin);
+    const currentUrl = new URL(window.location.origin);
+    const stripWww = (host: string) => host.replace(/^www\./, '');
+
+    // In production we may serve the app from `www.` while env points at apex.
+    // Prefer same-origin requests when the only difference is `www` to avoid CORS.
+    if (
+      stripWww(configuredUrl.hostname) === stripWww(currentUrl.hostname) &&
+      configuredUrl.protocol === currentUrl.protocol &&
+      configuredUrl.port === currentUrl.port
+    ) {
+      return currentUrl.origin;
+    }
+  } catch {
+    /* ignore parse failures and fall back to configured value */
+  }
+
+  return configured;
+}
+
+export const API_URL = runtimeApiUrl();
 export const hasApi = API_URL.length > 0;
 
 export const AUTH0_DOMAIN = (import.meta.env.VITE_AUTH0_DOMAIN ?? '').trim();
