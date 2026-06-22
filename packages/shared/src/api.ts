@@ -67,6 +67,7 @@ export interface AccountSummary {
   canUseAuthenticatedScans: boolean;
   billingEmail: string | null;
   canManageBilling: boolean;
+  hasActiveSubscription: boolean;
 }
 
 /* ---------- requests / responses ---------- */

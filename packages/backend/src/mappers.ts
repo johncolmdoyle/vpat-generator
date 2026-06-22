@@ -169,6 +169,9 @@ export function toAccountSummary(
 ): AccountSummary {
   const activeReportLimit =
     user.plan === 'starter' ? 2 : user.plan === 'growth' ? 15 : null;
+  const hasActiveSubscription =
+    Boolean(user.stripe_subscription_id) &&
+    ['active', 'trialing', 'past_due', 'unpaid'].includes(user.subscription_status ?? '');
   return {
     plan: user.plan,
     activeReports,
@@ -176,6 +179,7 @@ export function toAccountSummary(
     canUseAuthenticatedScans: user.plan !== 'starter',
     billingEmail: user.billing_email ?? user.email,
     canManageBilling: Boolean(user.stripe_customer_id),
+    hasActiveSubscription,
   };
 }
 

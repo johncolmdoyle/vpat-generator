@@ -115,6 +115,12 @@ const PRICING_TIERS: readonly PricingTier[] = [
 
 const PENDING_CHECKOUT_STORAGE_KEY = 'accessops.pendingCheckoutPlan';
 
+function subscriptionIssueMessage(account: AccountSummary | null | undefined): string | null {
+  if (!account) return null;
+  if (account.hasActiveSubscription) return null;
+  return `Your account does not have an active subscription yet. Complete billing setup before creating or editing VPAT reports.`;
+}
+
 const FAQS = [
   {
     q: 'What does VPAT Builder actually produce?',
@@ -423,6 +429,7 @@ function AuthenticatedApp() {
       billingBusy={billingBusy}
       userLabel={user?.email ?? user?.name ?? 'Signed in'}
       onCreateReport={() => {
+        if (subscriptionIssueMessage(account)) return;
         setActiveDetail(null);
         setActiveView('wizard');
       }}
@@ -538,6 +545,7 @@ function ReportsDashboard({
   onManageBilling: () => void;
   onSignout: () => void;
 }) {
+  const accountIssue = subscriptionIssueMessage(account);
   return (
     <div className="app">
       <a className="skip-link" href="#main">
@@ -577,13 +585,21 @@ function ReportsDashboard({
             <p className="lead">Open an existing report to keep working, or start a new draft.</p>
           </div>
           <div className="row wrap" style={{ gap: 10, marginBottom: 18 }}>
-            <button className="btn btn-primary" onClick={onCreateReport}>
-              New report
+            <button className="btn btn-primary" onClick={onCreateReport} disabled={Boolean(accountIssue)}>
+              {accountIssue ? 'Resolve account issue' : 'New report'}
             </button>
             <button className="btn btn-ghost" onClick={onRefresh} disabled={reportsLoading}>
               {reportsLoading ? 'Refreshing…' : 'Refresh'}
             </button>
           </div>
+          {accountIssue && (
+            <div role="alert" className="landing-alert" style={{ marginBottom: 16 }}>
+              <span style={{ color: 'var(--bad)', marginTop: 1 }}>
+                <Icons.alert size={16} />
+              </span>
+              <span>{accountIssue}</span>
+            </div>
+          )}
           {reportsError && (
             <div role="alert" className="landing-alert" style={{ marginBottom: 16 }}>
               <span style={{ color: 'var(--bad)', marginTop: 1 }}>
@@ -1303,11 +1319,13 @@ function WizardApp({
     account?.activeReportLimit !== null &&
     account?.activeReportLimit !== undefined &&
     account.activeReports >= account.activeReportLimit;
-  const domainBlockedMessage = activeLimitReached
-    ? `Your ${account?.plan} plan is already using ${account?.activeReports}/${account?.activeReportLimit} active reports. Finalize an existing report or upgrade to continue.`
-    : flowError && key === 'domain'
-      ? flowError
-      : null;
+  const domainBlockedMessage = subscriptionIssueMessage(account)
+    ? subscriptionIssueMessage(account)
+    : activeLimitReached
+      ? `Your ${account?.plan} plan is already using ${account?.activeReports}/${account?.activeReportLimit} active reports. Finalize an existing report or upgrade to continue.`
+      : flowError && key === 'domain'
+        ? flowError
+        : null;
   const authUpgradeMessage =
     account && !account.canUseAuthenticatedScans
       ? `Authenticated scans are available on Growth and Enterprise. Your ${account.plan} plan can still evaluate public pages and export draft reports.`
