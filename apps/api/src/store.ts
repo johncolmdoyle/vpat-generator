@@ -967,7 +967,7 @@ export async function getScanEvents(
 
 export async function recordExport(
   reportId: string,
-  format: 'pdf' | 'docx' | 'xlsx' | 'vpat',
+  format: 'pdf' | 'docx' | 'xlsx' | 'vpat' | 'audit-pdf' | 'audit-docx',
   s3Key: string,
   filename: string,
 ): Promise<void> {

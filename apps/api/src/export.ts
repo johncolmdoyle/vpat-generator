@@ -64,6 +64,7 @@ export interface ExportArtifact {
 type ExportVariant = 'draft' | 'approved';
 const ACCESSOPS_LOGO = fileURLToPath(new URL('../assets/accessops-logo.png', import.meta.url));
 const ACCESSOPS_LOGO_BUFFER = readFileSync(ACCESSOPS_LOGO);
+type ExportKind = 'acr' | 'audit';
 
 /* ---------- shared helpers ---------- */
 
@@ -85,9 +86,17 @@ function filename(detail: ReportDetail, ext: string, variant: ExportVariant): st
   const suffix = variant === 'draft' ? '-DRAFT' : '';
   return `VPAT2.5Rev-${detail.report.edition}-${slug(detail.report.domain)}-${dateStamp()}${suffix}.${ext}`;
 }
+function auditFilename(detail: ReportDetail, ext: string, variant: ExportVariant): string {
+  const suffix = variant === 'draft' ? '-DRAFT' : '';
+  return `AccessibilityAudit-${detail.report.edition}-${slug(detail.report.domain)}-${dateStamp()}${suffix}.${ext}`;
+}
 
 function val(s: string | null | undefined, fallback: string): string {
   return s && s.trim() ? s : fallback;
+}
+
+function artifactFilename(detail: ReportDetail, ext: string, variant: ExportVariant, kind: ExportKind): string {
+  return kind === 'audit' ? auditFilename(detail, ext, variant) : filename(detail, ext, variant);
 }
 
 /** Official VPAT product/report information rows. */
@@ -588,6 +597,98 @@ function overviewCards(report: ReportRecord, variant: ExportVariant): Table {
   );
 }
 
+function auditFindings(detail: ReportDetail): Finding[] {
+  return detail.findings.filter((finding) => !['Supports', 'Not Applicable', 'Not Evaluated'].includes(finding.status));
+}
+
+function issueEvidenceSummary(finding: Finding): string {
+  if (!finding.evidence.length) return 'No captured evidence.';
+  return finding.evidence.map((entry) => `${entry.type === 'issue' ? 'Issue' : 'Pass'}: ${entry.text} (${entry.where})`).join('\n');
+}
+
+function issueAffectedAreas(finding: Finding): string {
+  const uniqueWhere = [...new Set(finding.evidence.map((entry) => entry.where).filter(Boolean))];
+  return uniqueWhere.length ? uniqueWhere.join(', ') : 'Manual verification required';
+}
+
+function auditOverviewRows(detail: ReportDetail, variant: ExportVariant): [string, string][] {
+  const report = detail.report;
+  const issues = auditFindings(detail);
+  const partial = issues.filter((finding) => finding.status === 'Partially Supports').length;
+  const unsupported = issues.filter((finding) => finding.status === 'Does Not Support').length;
+  return [
+    ['Audit status', variant === 'draft' ? 'Draft evidence package — review before external sharing' : 'Approved supporting audit package'],
+    ['Product / Version', `${val(report.productName, report.domain)}${report.productVersion ? ` — ${report.productVersion}` : ''}`],
+    ['Edition / Target', `${EDITION_META[report.edition].fullLabel} · WCAG ${report.wcagTarget}`],
+    ['Pages / screens reviewed', detail.pages.length ? String(detail.pages.length) : 'No captured page inventory'],
+    ['Findings requiring review', `${issues.length} total (${partial} partially supports, ${unsupported} does not support)`],
+    ['Assistive technology', report.assistiveTech.length ? report.assistiveTech.join('; ') : 'Not provided'],
+    ['Test environment', report.testEnvironments.length ? report.testEnvironments.join('; ') : 'Not provided'],
+    ['Evaluator', [report.evaluatorName, report.evaluatorOrg].filter(Boolean).join(', ') || 'Not provided'],
+  ];
+}
+
+function auditMethodologyText(detail: ReportDetail): string {
+  const report = detail.report;
+  const pages = detail.pages.length
+    ? detail.pages.map((page) => page.title || page.url).join(', ')
+    : 'No page list was captured during this scan.';
+  return [
+    `Evaluation methods used: ${val(report.evaluationMethods, DEFAULT_EVALUATION_METHODS)}`,
+    `Assistive technology used: ${report.assistiveTech.length ? report.assistiveTech.join(', ') : 'Not provided'}`,
+    `Test environments: ${report.testEnvironments.length ? report.testEnvironments.join(', ') : 'Not provided'}`,
+    `Pages and screens reviewed: ${pages}`,
+    'Automated results were reviewed alongside manual evaluation and per-criterion human approval in the reporting workflow.',
+  ].join('\n\n');
+}
+
+function auditIntroSummary(detail: ReportDetail, variant: ExportVariant): string {
+  const issues = auditFindings(detail).length;
+  return variant === 'draft'
+    ? `This draft audit report documents the evaluation evidence behind the generated ACR. ${issues} findings currently require remediation or buyer explanation before final publication.`
+    : `This approved audit report documents the evaluation evidence behind the published ACR. ${issues} findings required remediation or disclosure at the time of approval.`;
+}
+
+function issueInventoryTable(detail: ReportDetail): Table {
+  const rows = auditFindings(detail).map((finding) => {
+    const refs = crossReferenceForEdition(detail.report.edition, finding.id);
+    const references = [
+      refs.en.length ? `EN 301 549 ${refs.en.join(', ')}` : '',
+      refs.s508.length ? `Section 508 ${refs.s508.join(', ')}` : '',
+    ].filter(Boolean).join('\n');
+    return [
+      `${finding.id} ${finding.name}${finding.level ? ` (Level ${finding.level})` : ''}`,
+      finding.status,
+      issueAffectedAreas(finding),
+      `${finding.remarks}\n\nEvidence\n${issueEvidenceSummary(finding)}${references ? `\n\nCross-reference\n${references}` : ''}`,
+    ];
+  });
+  return docxSimpleTable(
+    [
+      ['Criterion', 2200],
+      ['Conformance', 1500],
+      ['Affected area', 2000],
+      ['Evidence and notes', 3660],
+    ],
+    rows.length ? rows : [['No findings requiring disclosure', 'Supports', '—', 'No non-supporting findings were captured in this report.']],
+  );
+}
+
+function pageInventoryTable(detail: ReportDetail): Table {
+  return docxSimpleTable(
+    [
+      ['Title', 2800],
+      ['URL', 5400],
+      ['Auth', 1160],
+    ],
+    (detail.pages.length ? detail.pages : [{ title: 'No pages captured', url: '—', isAuth: false }]).map((page) => [
+      page.title || '(Untitled page)',
+      page.url,
+      page.isAuth ? 'Authenticated' : 'Public',
+    ]),
+  );
+}
+
 function buildDocxHeaderFooter(report: ReportRecord): { header: Header; footer: Footer } {
   return {
     header: new Header({
@@ -840,6 +941,160 @@ async function buildDocx(detail: ReportDetail, variant: ExportVariant): Promise<
     buffer,
     contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     filename: filename(detail, 'docx', variant),
+  };
+}
+
+async function buildAuditDocx(detail: ReportDetail, variant: ExportVariant): Promise<ExportArtifact> {
+  const report = detail.report;
+  const { header, footer } = buildDocxHeaderFooter(report);
+  const issues = auditFindings(detail);
+  const children: (Paragraph | Table)[] = [
+    coverHeroTable(report, variant),
+    docxParagraph('', { spacing: { after: 120 } }),
+    calloutTable(
+      variant === 'draft' ? 'draft' : 'info',
+      variant === 'draft' ? 'Draft supporting audit report' : 'Supporting audit report',
+      auditIntroSummary(detail, variant),
+    ),
+    docxParagraph('', { spacing: { after: 80 } }),
+    docxSimpleTable(
+      [
+        ['Field', 2500],
+        ['Detail', 6860],
+      ],
+      auditOverviewRows(detail, variant),
+      { headerFill: DOCX_THEME.surfaceAlt, headerText: DOCX_THEME.muted },
+    ),
+    new Paragraph({ children: [new PageBreak()] }),
+    docxParagraph('Accessibility Audit Report', {
+      size: 30,
+      bold: true,
+      color: DOCX_THEME.text,
+      spacing: { after: 40 },
+    }),
+    docxParagraph('Supporting evidence behind the Accessibility Conformance Report', {
+      size: 18,
+      italics: true,
+      color: DOCX_THEME.muted,
+      spacing: { after: 180 },
+    }),
+    docxParagraph('Scope and Methodology', {
+      heading: HeadingLevel.HEADING_1,
+      size: 26,
+      bold: true,
+      color: DOCX_THEME.accent,
+      spacing: { after: 120 },
+    }),
+    kvTable(productInfo(report)),
+    docxParagraph('Methodology narrative', {
+      heading: HeadingLevel.HEADING_2,
+      size: 22,
+      bold: true,
+      color: DOCX_THEME.accent,
+      spacing: { before: 180, after: 90 },
+    }),
+    calloutTable('info', 'Evaluation approach', auditMethodologyText(detail)),
+    docxParagraph('Issue inventory', {
+      heading: HeadingLevel.HEADING_1,
+      size: 26,
+      bold: true,
+      color: DOCX_THEME.accent,
+      spacing: { before: 260, after: 120 },
+      pageBreakBefore: true,
+    }),
+    docxParagraph(
+      issues.length
+        ? `The inventory below includes each criterion that currently documents a partial or non-supporting result, together with captured evidence and cross-references.`
+        : 'No partial or non-supporting criteria were captured in this report.',
+      { size: 18, color: DOCX_THEME.text, spacing: { after: 120 } },
+    ),
+    issueInventoryTable(detail),
+    docxParagraph('Pages reviewed', {
+      heading: HeadingLevel.HEADING_1,
+      size: 26,
+      bold: true,
+      color: DOCX_THEME.accent,
+      spacing: { before: 280, after: 100 },
+      pageBreakBefore: true,
+    }),
+    pageInventoryTable(detail),
+    docxParagraph('Manual test plan', {
+      heading: HeadingLevel.HEADING_1,
+      size: 26,
+      bold: true,
+      color: DOCX_THEME.accent,
+      spacing: { before: 280, after: 100 },
+      pageBreakBefore: true,
+    }),
+    docxParagraph(
+      'The procedures below document the manual and assistive-technology steps that back the findings and the ACR attestation.',
+      { size: 18, italics: true, color: DOCX_THEME.muted, spacing: { after: 120 } },
+    ),
+  ];
+
+  for (const area of TEST_PROCEDURE) {
+    children.push(
+      docxParagraph(area.title, {
+        heading: HeadingLevel.HEADING_2,
+        size: 22,
+        bold: true,
+        color: DOCX_THEME.text,
+        spacing: { before: 140, after: 70 },
+      }),
+    );
+    for (const step of area.steps) {
+      children.push(
+        docxParagraph(step, {
+          size: 18,
+          color: DOCX_THEME.text,
+          spacing: { after: 50 },
+          bullet: { level: 0 },
+        }),
+      );
+    }
+    children.push(
+      docxParagraph(`Covers: ${area.criteria.join(', ')}`, {
+        size: 17,
+        italics: true,
+        color: DOCX_THEME.muted,
+        spacing: { after: 100 },
+      }),
+    );
+  }
+
+  const doc = new Document({
+    creator: 'AccessOps',
+    title: `Accessibility Audit Report — ${val(report.productName, report.domain)}`,
+    description: `${variant === 'draft' ? 'Draft' : 'Approved'} supporting accessibility audit for ${val(report.productName, report.domain)}`,
+    sections: [
+      {
+        headers: { default: header },
+        footers: { default: footer },
+        properties: {
+          page: {
+            size: { width: DOCX_PAGE.width, height: DOCX_PAGE.height },
+            margin: {
+              top: DOCX_PAGE.margin,
+              right: DOCX_PAGE.margin,
+              bottom: DOCX_PAGE.margin,
+              left: DOCX_PAGE.margin,
+              header: DOCX_PAGE.headerFooter,
+              footer: DOCX_PAGE.headerFooter,
+            },
+          },
+        },
+        children,
+      },
+    ],
+    features: {
+      updateFields: true,
+    },
+  });
+  const buffer = await Packer.toBuffer(doc);
+  return {
+    buffer,
+    contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    filename: artifactFilename(detail, 'docx', variant, 'audit'),
   };
 }
 
@@ -1508,6 +1763,100 @@ function autoRowsCard(doc: PdfDoc, title: string, rows: AutoRow[]): void {
   doc.y = y + height + 10;
 }
 
+function buildAuditPdf(detail: ReportDetail, variant: ExportVariant): Promise<ExportArtifact> {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ margin: 50, size: 'A4', bufferPages: true });
+    const chunks: Buffer[] = [];
+    doc.on('data', (c: Buffer) => chunks.push(c));
+    doc.on('end', () =>
+      resolve({
+        buffer: Buffer.concat(chunks),
+        contentType: 'application/pdf',
+        filename: artifactFilename(detail, 'pdf', variant, 'audit'),
+      }),
+    );
+    doc.on('error', reject);
+    doc.on('pageAdded', () => decoratePage(doc, detail.report, variant));
+
+    const report = detail.report;
+    const issues = auditFindings(detail);
+    decoratePage(doc, report, variant);
+
+    coverHero(doc, report, variant);
+    doc
+      .font('Helvetica-Bold')
+      .fontSize(27)
+      .fillColor(PDF_THEME.text)
+      .text('Accessibility Audit Report', doc.page.margins.left, doc.y, { width: 430 });
+    doc.moveDown(0.18);
+    doc
+      .font('Helvetica')
+      .fontSize(11.5)
+      .fillColor(PDF_THEME.muted)
+      .text('Supporting evidence behind the Accessibility Conformance Report', doc.page.margins.left, doc.y, { width: 430 });
+    doc.moveDown(0.5);
+
+    callout(
+      doc,
+      variant === 'draft' ? 'draft' : 'info',
+      variant === 'draft' ? 'Draft supporting audit report' : 'Supporting audit report',
+      auditIntroSummary(detail, variant),
+    );
+
+    sectionHeading(
+      doc,
+      'Audit Overview',
+      'Scope and methodology summary',
+      'This artifact expands the procurement-facing ACR with the evaluation scope, methodology, issue inventory, and evidence captured during review.',
+    );
+
+    infoGrid(doc, auditOverviewRows(detail, variant));
+    callout(doc, 'info', 'Methodology narrative', auditMethodologyText(detail));
+
+    doc.addPage();
+    sectionHeading(
+      doc,
+      'Issue Inventory',
+      'Findings requiring buyer review or remediation',
+      issues.length
+        ? 'Each card below documents a criterion with a partial or non-supporting result, together with captured evidence and cross-references.'
+        : 'No partial or non-supporting findings were captured in this report.',
+    );
+    if (issues.length) {
+      for (const finding of issues) {
+        findingCard(doc, report.edition, finding);
+      }
+    }
+
+    const autos = detail.auto.filter((row) => row.ref);
+    if (autos.length) {
+      autoRowsCard(doc, 'Reference and automatic rows', autos);
+    }
+
+    doc.addPage();
+    sectionHeading(doc, 'Coverage', 'Pages reviewed', 'The list below identifies the captured scope for this audit package.');
+    if (detail.pages.length) {
+      callout(doc, 'info', 'Pages tested', detail.pages.map((page) => `${page.title || '(Untitled page)'} — ${page.url}`).join('\n'));
+    } else {
+      callout(doc, 'info', 'Pages tested', 'No page inventory was captured during this report run.');
+    }
+
+    sectionHeading(
+      doc,
+      'Appendix',
+      'Manual Test Plan',
+      'The procedure below documents the manual and assistive-technology checks that support the findings and the ACR attestation.',
+    );
+    for (const area of TEST_PROCEDURE) {
+      const body = `${area.steps.map((step) => `- ${step}`).join('\n')}\n\nCovers: ${area.criteria.join(', ')}`;
+      callout(doc, 'info', area.title, body);
+    }
+
+    finalizePageNumbers(doc);
+    doc.end();
+  });
+}
+
 function buildPdf(detail: ReportDetail, variant: ExportVariant): Promise<ExportArtifact> {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ margin: 50, size: 'A4', bufferPages: true });
@@ -1622,6 +1971,10 @@ export function buildExport(format: ExportFormat, detail: ReportDetail, variant:
   switch (format) {
     case 'vpat':
       return Promise.resolve(buildVpat(detail, variant));
+    case 'audit-docx':
+      return buildAuditDocx(detail, variant);
+    case 'audit-pdf':
+      return buildAuditPdf(detail, variant);
     case 'xlsx':
       return buildXlsx(detail, variant);
     case 'docx':

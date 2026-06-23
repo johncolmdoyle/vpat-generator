@@ -122,7 +122,11 @@ export function DownloadScreen({
     ['Excel', Icons.doc],
     ['.vpat', Icons.code],
   ];
-  const ext = (fmt: string) => (fmt === 'Word' ? 'docx' : fmt === 'PDF' ? 'pdf' : fmt === 'Excel' ? 'xlsx' : 'vpat');
+  const auditDownloads: [string, ExportFormat, (p: IconProps) => ReactNode][] = [
+    ['Audit PDF', 'audit-pdf', Icons.doc],
+    ['Audit Word', 'audit-docx', Icons.doc],
+  ];
+  const ext = (fmt: string) => (fmt === 'Word' ? 'docx' : fmt === 'PDF' ? 'pdf' : fmt === 'Excel' ? 'xlsx' : fmt === 'Audit PDF' ? 'pdf' : fmt === 'Audit Word' ? 'docx' : 'vpat');
   const mockName = (label: string) =>
     `VPAT2.5Rev-${edition}-${domain.replace(/\..*/, '')}-${today.replace(/\s|,/g, '')}.${ext(label)}`;
 
@@ -137,8 +141,8 @@ export function DownloadScreen({
 
   const onDownload = (label: string, variant: 'draft' | 'approved') => {
     setExportError(null);
-    if (hasApi && reportId) {
-      const fmt = ext(label) as ExportFormat;
+      if (hasApi && reportId) {
+        const fmt = ext(label) as ExportFormat;
       api
         .exportReport(reportId, fmt, variant)
         .then((r) => {
@@ -155,6 +159,26 @@ export function DownloadScreen({
     } else {
       setDownloaded({ name: mockName(label).replace(/(\.[^.]+)$/, variant === 'draft' ? '-DRAFT$1' : '$1'), real: false });
       if (variant === 'draft') setDraftDownloaded(true);
+    }
+  };
+
+  const onDownloadFormat = (format: ExportFormat, label: string, variant: 'draft' | 'approved') => {
+    setExportError(null);
+    if (hasApi && reportId) {
+      api
+        .exportReport(reportId, format, variant)
+        .then((r) => {
+          setDownloaded({ name: r.filename, real: true });
+          onExported?.();
+          window.open(r.url, '_blank', 'noopener');
+        })
+        .catch((e: unknown) => {
+          console.error('export failed', e);
+          setDownloaded(null);
+          setExportError(e instanceof Error ? e.message : String(e));
+        });
+    } else {
+      setDownloaded({ name: mockName(label).replace(/(\.[^.]+)$/, variant === 'draft' ? '-DRAFT$1' : '$1'), real: false });
     }
   };
 
@@ -505,6 +529,32 @@ export function DownloadScreen({
           <div className="faint" style={{ fontSize: 11.5, marginTop: 8 }}>
             PDF and Word are the formal client-facing deliverables. Excel is a filterable internal review workbook for audit prep and evidence triage.
           </div>
+          <div className="faint" style={{ fontSize: 11.5, marginTop: 8 }}>
+            The supporting Audit Report is a separate evidence package for buyers who want scope, methodology, and issue-level backup behind the ACR.
+          </div>
+      </div>
+
+      <div className="card" style={{ marginTop: 16 }}>
+        <div className="row between wrap" style={{ gap: 14 }}>
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 15 }}>Download Supporting Audit Report</div>
+            <div className="faint" style={{ fontSize: 12.5, marginTop: 3 }}>
+              Use this when a buyer asks for the evidence package behind the ACR, including scope, methodology, and issue inventory.
+            </div>
+          </div>
+          <div className="row wrap" style={{ gap: 9 }}>
+            {auditDownloads.map(([label, format, Ic], i) => (
+              <button
+                key={`audit-${format}-${i}`}
+                className={i === 0 ? 'btn btn-primary' : 'btn btn-ghost'}
+                onClick={() => onDownloadFormat(format, label, isFinalized ? 'approved' : 'draft')}
+              >
+                {i === 0 ? <Icons.download size={16} className="ic" /> : <Ic size={16} className="ic" />}
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       <div className="card" style={{ marginTop: 16, border: '1px solid color-mix(in oklab, var(--accent) 28%, var(--border))' }}>

@@ -129,7 +129,7 @@ CREATE TABLE scan_events (
 CREATE TABLE exports (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   report_id  UUID NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
-  format     TEXT NOT NULL CHECK (format IN ('pdf','docx','vpat')),
+  format     TEXT NOT NULL CHECK (format IN ('pdf','docx','xlsx','vpat','audit-pdf','audit-docx')),
   s3_key     TEXT NOT NULL,
   filename   TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()

@@ -118,6 +118,15 @@ export async function migrate(): Promise<void> {
     CHECK (status IN ('open','pending','resolved','closed'))
   `);
   await pool.query(`
+    ALTER TABLE exports
+    DROP CONSTRAINT IF EXISTS exports_format_check
+  `);
+  await pool.query(`
+    ALTER TABLE exports
+    ADD CONSTRAINT exports_format_check
+    CHECK (format IN ('pdf','docx','xlsx','vpat','audit-pdf','audit-docx'))
+  `);
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS audit_events (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       org_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
