@@ -271,7 +271,7 @@ export interface UpdateFindingRequest {
 /** Patch the report's publication metadata + attestation (the Details step). */
 export type UpdateReportRequest = Partial<import('./types.js').ReportMeta>;
 
-export type ExportFormat = 'pdf' | 'docx' | 'vpat';
+export type ExportFormat = 'pdf' | 'docx' | 'xlsx' | 'vpat';
 export interface ExportRequest {
   format: ExportFormat;
   variant?: 'draft' | 'approved';

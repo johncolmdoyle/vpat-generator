@@ -119,9 +119,10 @@ export function DownloadScreen({
   const downloads: [string, (p: IconProps) => ReactNode][] = [
     ['PDF', Icons.doc],
     ['Word', Icons.doc],
+    ['Excel', Icons.doc],
     ['.vpat', Icons.code],
   ];
-  const ext = (fmt: string) => (fmt === 'Word' ? 'docx' : fmt === 'PDF' ? 'pdf' : 'vpat');
+  const ext = (fmt: string) => (fmt === 'Word' ? 'docx' : fmt === 'PDF' ? 'pdf' : fmt === 'Excel' ? 'xlsx' : 'vpat');
   const mockName = (label: string) =>
     `VPAT2.5Rev-${edition}-${domain.replace(/\..*/, '')}-${today.replace(/\s|,/g, '')}.${ext(label)}`;
 
@@ -498,9 +499,12 @@ export function DownloadScreen({
             <span style={{ fontSize: 12.5, color: 'var(--bad)' }}>Export failed — {exportError}</span>
           </div>
         )}
-        <div className="faint" style={{ fontSize: 11.5, marginTop: 14 }}>
-          {edited} of {findings.length} findings edited from the AI draft before approval.
-        </div>
+          <div className="faint" style={{ fontSize: 11.5, marginTop: 14 }}>
+            {edited} of {findings.length} findings edited from the AI draft before approval.
+          </div>
+          <div className="faint" style={{ fontSize: 11.5, marginTop: 8 }}>
+            PDF and Word are the formal client-facing deliverables. Excel is a filterable internal review workbook for audit prep and evidence triage.
+          </div>
       </div>
 
       <div className="card" style={{ marginTop: 16, border: '1px solid color-mix(in oklab, var(--accent) 28%, var(--border))' }}>
@@ -570,7 +574,7 @@ export function DownloadScreen({
             <div>
               <div style={{ fontWeight: 600, fontSize: 15 }}>Download Approved Report</div>
               <div className="faint" style={{ fontSize: 12.5, marginTop: 3 }}>
-                Approved exports remove the draft label from the filename and document contents.
+                Approved PDF and Word exports remove the draft label from the filename and document contents. The Excel workbook stays available for internal review in approved state as well.
               </div>
             </div>
             <div className="row wrap" style={{ gap: 9 }}>

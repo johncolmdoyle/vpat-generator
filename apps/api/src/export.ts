@@ -11,19 +11,28 @@
  * review and approve before it is published.
  */
 import {
+  Footer,
+  Header,
+  ImageRun,
   Document,
   Packer,
   Paragraph,
   HeadingLevel,
+  PageBreak,
+  PageNumber,
   Table,
   TableRow,
   TableCell,
+  TableLayoutType,
   TextRun,
+  VerticalAlignTable,
   WidthType,
   BorderStyle,
   AlignmentType,
   ShadingType,
 } from 'docx';
+import ExcelJS from 'exceljs';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import PDFDocument from 'pdfkit';
 import {
@@ -54,6 +63,7 @@ export interface ExportArtifact {
 
 type ExportVariant = 'draft' | 'approved';
 const ACCESSOPS_LOGO = fileURLToPath(new URL('../assets/accessops-logo.png', import.meta.url));
+const ACCESSOPS_LOGO_BUFFER = readFileSync(ACCESSOPS_LOGO);
 
 /* ---------- shared helpers ---------- */
 
@@ -183,48 +193,235 @@ function buildVpat(detail: ReportDetail, variant: ExportVariant): ExportArtifact
 
 /* ---------- DOCX ---------- */
 
-const BORDERS = {
-  top: { style: BorderStyle.SINGLE, size: 1, color: 'CCCCCC' },
-  bottom: { style: BorderStyle.SINGLE, size: 1, color: 'CCCCCC' },
-  left: { style: BorderStyle.SINGLE, size: 1, color: 'CCCCCC' },
-  right: { style: BorderStyle.SINGLE, size: 1, color: 'CCCCCC' },
-  insideHorizontal: { style: BorderStyle.SINGLE, size: 1, color: 'EEEEEE' },
-  insideVertical: { style: BorderStyle.SINGLE, size: 1, color: 'EEEEEE' },
-};
+const DOCX_THEME = {
+  accent: '4F56D3',
+  accentSoft: 'EEF0FF',
+  accentPanel: 'E5E8FF',
+  text: '21253A',
+  muted: '667085',
+  border: 'D8DDEA',
+  surface: 'FFFFFF',
+  surfaceAlt: 'F7F8FC',
+  draft: 'B3261E',
+  draftSoft: 'FCEDEA',
+  ok: '15824B',
+  okSoft: 'E8F5EC',
+  warn: '9A6700',
+  warnSoft: 'FBF0D9',
+  bad: 'B3261E',
+  badSoft: 'FBE7E6',
+  na: '5B6470',
+  naSoft: 'ECEEF1',
+} as const;
 
-function tc(text: string, opts: { bold?: boolean; width?: number; shade?: boolean } = {}): TableCell {
+const DOCX_PAGE = {
+  width: 12240,
+  height: 15840,
+  margin: 1440,
+  headerFooter: 710,
+  contentWidth: 9360,
+} as const;
+
+const DOCX_TABLE_MARGINS = { top: 96, bottom: 96, left: 120, right: 120 };
+const DOCX_LINE = { top: { style: BorderStyle.SINGLE, size: 1, color: DOCX_THEME.border } } as const;
+const DOCX_BORDER = (color: string = DOCX_THEME.border, size = 1) => ({ style: BorderStyle.SINGLE, size, color });
+const DOCX_NO_BORDER = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' } as const;
+const DOCX_GRID_BORDERS = {
+  top: DOCX_BORDER(),
+  bottom: DOCX_BORDER(),
+  left: DOCX_BORDER(),
+  right: DOCX_BORDER(),
+  insideHorizontal: DOCX_BORDER('E7EAF2'),
+  insideVertical: DOCX_BORDER('E7EAF2'),
+} as const;
+const DOCX_CARD_BORDERS = {
+  top: DOCX_BORDER(),
+  bottom: DOCX_BORDER(),
+  left: DOCX_BORDER(),
+  right: DOCX_BORDER(),
+  insideHorizontal: DOCX_NO_BORDER,
+  insideVertical: DOCX_NO_BORDER,
+} as const;
+const DOCX_HERO_BORDERS = {
+  top: DOCX_NO_BORDER,
+  bottom: DOCX_NO_BORDER,
+  left: DOCX_NO_BORDER,
+  right: DOCX_NO_BORDER,
+  insideHorizontal: DOCX_NO_BORDER,
+  insideVertical: DOCX_NO_BORDER,
+} as const;
+
+function docxText(text: string, opts: Record<string, unknown> = {}): TextRun {
+  return new TextRun({ text, ...opts });
+}
+
+function docxParagraph(
+  text: string,
+  opts: {
+    size?: number;
+    bold?: boolean;
+    italics?: boolean;
+    color?: string;
+    alignment?: (typeof AlignmentType)[keyof typeof AlignmentType];
+    heading?: (typeof HeadingLevel)[keyof typeof HeadingLevel];
+    spacing?: { before?: number; after?: number; line?: number };
+    border?: { top?: { style: (typeof BorderStyle)[keyof typeof BorderStyle]; size: number; color: string } };
+    pageBreakBefore?: boolean;
+    bullet?: { level: number };
+  } = {},
+): Paragraph {
+  return new Paragraph({
+    heading: opts.heading,
+    alignment: opts.alignment,
+    spacing: opts.spacing,
+    border: opts.border,
+    pageBreakBefore: opts.pageBreakBefore,
+    bullet: opts.bullet,
+    children: [
+      docxText(text, {
+        bold: opts.bold,
+        italics: opts.italics,
+        color: opts.color,
+        size: opts.size,
+        font: 'Aptos',
+      }),
+    ],
+  });
+}
+
+function docxMultilineParagraphs(
+  text: string,
+  opts: { size?: number; bold?: boolean; color?: string; spacingAfter?: number; italics?: boolean } = {},
+): Paragraph[] {
+  return text.split('\n').map(
+    (line, index) =>
+      new Paragraph({
+        spacing: { after: index === text.split('\n').length - 1 ? opts.spacingAfter ?? 0 : 30 },
+        children: [
+          docxText(line, {
+            bold: opts.bold,
+            italics: opts.italics,
+            color: opts.color ?? DOCX_THEME.text,
+            size: opts.size ?? 20,
+            font: 'Aptos',
+          }),
+        ],
+      }),
+  );
+}
+
+function docxCell(
+  children: Paragraph[],
+  opts: {
+    width?: number;
+    shade?: string;
+    verticalAlign?: (typeof VerticalAlignTable)[keyof typeof VerticalAlignTable];
+    borders?: Record<string, unknown>;
+    margins?: { top?: number; bottom?: number; left?: number; right?: number };
+    columnSpan?: number;
+  } = {},
+): TableCell {
   return new TableCell({
-    width: opts.width ? { size: opts.width, type: WidthType.PERCENTAGE } : undefined,
-    shading: opts.shade ? { type: ShadingType.CLEAR, color: 'auto', fill: 'F3F3F6' } : undefined,
-    children: text.split('\n').map(
-      (line) => new Paragraph({ children: [new TextRun({ text: line, bold: opts.bold })] }),
-    ),
+    children,
+    width: opts.width ? { size: opts.width, type: WidthType.DXA } : undefined,
+    shading: opts.shade ? { type: ShadingType.CLEAR, color: 'auto', fill: opts.shade } : undefined,
+    verticalAlign: opts.verticalAlign,
+    borders: opts.borders,
+    margins: opts.margins ?? DOCX_TABLE_MARGINS,
+    columnSpan: opts.columnSpan,
   });
 }
 
 function kvTable(rows: [string, string][]): Table {
   return new Table({
-    width: { size: 100, type: WidthType.PERCENTAGE },
-    borders: BORDERS,
+    width: { size: DOCX_PAGE.contentWidth, type: WidthType.DXA },
+    indent: { size: 0, type: WidthType.DXA },
+    layout: TableLayoutType.FIXED,
+    columnWidths: [2600, 6760],
+    borders: DOCX_GRID_BORDERS,
     rows: rows.map(
-      ([k, v]) => new TableRow({ children: [tc(k, { bold: true, width: 28, shade: true }), tc(v, { width: 72 })] }),
+      ([label, value]) =>
+        new TableRow({
+          cantSplit: true,
+          children: [
+            docxCell(
+              [docxParagraph(label, { size: 18, bold: true, color: DOCX_THEME.muted, spacing: { after: 0 } })],
+              { width: 2600, shade: DOCX_THEME.surfaceAlt, verticalAlign: VerticalAlignTable.CENTER },
+            ),
+            docxCell(docxMultilineParagraphs(value, { size: 19, spacingAfter: 0 }), {
+              width: 6760,
+              verticalAlign: VerticalAlignTable.CENTER,
+            }),
+          ],
+        }),
     ),
   });
 }
 
-function conformanceTable(rows: { id: string; level: string; remarks: string }[]): Table {
-  const header = new TableRow({
-    tableHeader: true,
-    children: [
-      tc('Criteria', { bold: true, width: 26, shade: true }),
-      tc('Conformance Level', { bold: true, width: 20, shade: true }),
-      tc('Remarks and Explanations', { bold: true, width: 54, shade: true }),
+function docxSimpleTable(
+  headers: [string, number][],
+  rows: string[][],
+  opts: { headerFill?: string; headerText?: string } = {},
+): Table {
+  return new Table({
+    width: { size: DOCX_PAGE.contentWidth, type: WidthType.DXA },
+    indent: { size: 0, type: WidthType.DXA },
+    layout: TableLayoutType.FIXED,
+    columnWidths: headers.map(([, width]) => width),
+    borders: DOCX_GRID_BORDERS,
+    rows: [
+      new TableRow({
+        tableHeader: true,
+        cantSplit: true,
+        children: headers.map(([label, width]) =>
+          docxCell(
+            [docxParagraph(label, { size: 18, bold: true, color: opts.headerText ?? DOCX_THEME.accent, spacing: { after: 0 } })],
+            {
+              width,
+              shade: opts.headerFill ?? DOCX_THEME.accentSoft,
+              verticalAlign: VerticalAlignTable.CENTER,
+            },
+          ),
+        ),
+      }),
+      ...rows.map(
+        (row) =>
+          new TableRow({
+            cantSplit: true,
+            children: row.map((value, index) =>
+              docxCell(docxMultilineParagraphs(value, { size: 18, spacingAfter: 0 }), {
+                width: headers[index]?.[1],
+                verticalAlign: VerticalAlignTable.CENTER,
+              }),
+            ),
+          }),
+      ),
     ],
   });
-  const body = rows.map(
-    (r) => new TableRow({ children: [tc(r.id), tc(r.level), tc(r.remarks)] }),
+}
+
+function conformanceTable(rows: { id: string; level: string; remarks: string }[]): Table {
+  return docxSimpleTable(
+    [
+      ['Criteria', 2400],
+      ['Conformance Level', 1800],
+      ['Remarks and Explanations', 5160],
+    ],
+    rows.map((row) => [row.id, row.level, row.remarks]),
   );
-  return new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, borders: BORDERS, rows: [header, ...body] });
+}
+
+function statusFill(status: string): { fill: string; text: string } {
+  switch (status) {
+    case 'Supports':
+      return { fill: DOCX_THEME.okSoft, text: DOCX_THEME.ok };
+    case 'Partially Supports':
+      return { fill: DOCX_THEME.warnSoft, text: DOCX_THEME.warn };
+    case 'Does Not Support':
+      return { fill: DOCX_THEME.badSoft, text: DOCX_THEME.bad };
+    default:
+      return { fill: DOCX_THEME.naSoft, text: DOCX_THEME.na };
+  }
 }
 
 function wcagRemark(edition: ReportEdition, f: Finding): string {
@@ -254,62 +451,275 @@ function reportNoteForEdition(edition: ReportEdition, rep: ReportDef): string {
   return rep.note;
 }
 
+function coverHeroTable(report: ReportRecord, variant: ExportVariant): Table {
+  const productTitle = val(report.productName, report.domain);
+  const summary =
+    variant === 'draft'
+      ? 'Draft accessibility conformance report prepared for evaluator review, procurement preparation, and approval.'
+      : 'Approved accessibility conformance report prepared for procurement, legal review, and customer distribution.';
+
+  return new Table({
+    width: { size: DOCX_PAGE.contentWidth, type: WidthType.DXA },
+    indent: { size: 0, type: WidthType.DXA },
+    layout: TableLayoutType.FIXED,
+    columnWidths: [6120, 3240],
+    borders: DOCX_HERO_BORDERS,
+    rows: [
+      new TableRow({
+        children: [
+          docxCell(
+            [
+              new Paragraph({
+                spacing: { after: 140 },
+                children: [
+                  new ImageRun({
+                    type: 'png',
+                    data: ACCESSOPS_LOGO_BUFFER,
+                    transformation: { width: 42, height: 42 },
+                  }),
+                ],
+              }),
+              docxParagraph('AccessOps', { size: 30, bold: true, color: 'FFFFFF', spacing: { after: 40 } }),
+              docxParagraph('VPAT Builder · International Edition', {
+                size: 19,
+                color: 'DEE3FF',
+                spacing: { after: 220 },
+              }),
+              docxParagraph(productTitle, { size: 34, bold: true, color: 'FFFFFF', spacing: { after: 120 } }),
+              docxParagraph(summary, { size: 20, color: 'E7EBFF', spacing: { after: 0 } }),
+            ],
+            {
+              width: 6120,
+              shade: DOCX_THEME.accent,
+              borders: DOCX_HERO_BORDERS,
+              margins: { top: 260, bottom: 260, left: 260, right: 260 },
+              verticalAlign: VerticalAlignTable.CENTER,
+            },
+          ),
+          docxCell(
+            [
+              docxParagraph('EDITION', { size: 15, bold: true, color: DOCX_THEME.accent, spacing: { after: 30 } }),
+              docxParagraph(EDITION_META[report.edition].fullLabel, {
+                size: 20,
+                bold: true,
+                color: DOCX_THEME.text,
+                spacing: { after: 140 },
+              }),
+              docxParagraph('WCAG TARGET', { size: 15, bold: true, color: DOCX_THEME.accent, spacing: { after: 30 } }),
+              docxParagraph(`Level ${report.wcagTarget}`, {
+                size: 20,
+                bold: true,
+                color: DOCX_THEME.text,
+                spacing: { after: 140 },
+              }),
+              docxParagraph('VENDOR', { size: 15, bold: true, color: DOCX_THEME.accent, spacing: { after: 30 } }),
+              docxParagraph(val(report.vendorName, 'Not provided'), {
+                size: 19,
+                color: DOCX_THEME.text,
+                spacing: { after: 140 },
+              }),
+              docxParagraph('CONTACT', { size: 15, bold: true, color: DOCX_THEME.accent, spacing: { after: 30 } }),
+              docxParagraph(val(report.contactEmail, `accessibility@${report.domain}`), {
+                size: 19,
+                color: DOCX_THEME.text,
+                spacing: { after: 0 },
+              }),
+            ],
+            {
+              width: 3240,
+              shade: DOCX_THEME.accentPanel,
+              borders: DOCX_HERO_BORDERS,
+              margins: { top: 260, bottom: 260, left: 240, right: 240 },
+              verticalAlign: VerticalAlignTable.CENTER,
+            },
+          ),
+        ],
+      }),
+    ],
+  });
+}
+
+function calloutTable(tone: 'draft' | 'info', title: string, body: string): Table {
+  const fill = tone === 'draft' ? DOCX_THEME.draftSoft : DOCX_THEME.accentSoft;
+  const titleColor = tone === 'draft' ? DOCX_THEME.draft : DOCX_THEME.accent;
+  return new Table({
+    width: { size: DOCX_PAGE.contentWidth, type: WidthType.DXA },
+    indent: { size: 0, type: WidthType.DXA },
+    layout: TableLayoutType.FIXED,
+    columnWidths: [DOCX_PAGE.contentWidth],
+    borders: DOCX_CARD_BORDERS,
+    rows: [
+      new TableRow({
+        children: [
+          docxCell(
+            [
+              docxParagraph(title, { size: 20, bold: true, color: titleColor, spacing: { after: 80 } }),
+              docxParagraph(body, { size: 18, color: DOCX_THEME.text, spacing: { after: 0 } }),
+            ],
+            {
+              width: DOCX_PAGE.contentWidth,
+              shade: fill,
+              borders: DOCX_CARD_BORDERS,
+              margins: { top: 160, bottom: 160, left: 180, right: 180 },
+            },
+          ),
+        ],
+      }),
+    ],
+  });
+}
+
+function overviewCards(report: ReportRecord, variant: ExportVariant): Table {
+  const reviewedBy = [report.evaluatorName, report.evaluatorOrg].filter(Boolean).join(', ') || 'Not provided';
+  const approval = variant === 'approved' && report.finalizedAt ? `${report.finalizedByEmail ?? 'Approver'} on ${new Date(report.finalizedAt).toLocaleString('en-US')}` : 'Pending final approval';
+  const rows: [string, string][] = [
+    ['Report status', variant === 'draft' ? 'Draft — evaluator review required' : 'Approved for publication'],
+    ['Evaluation period', report.evaluationStart || report.evaluationEnd ? `${isoToLong(report.evaluationStart)} – ${isoToLong(report.evaluationEnd)}` : '—'],
+    ['Evaluator', reviewedBy],
+    ['Final approval', approval],
+  ];
+  return docxSimpleTable(
+    [
+      ['Field', 2500],
+      ['Detail', 6860],
+    ],
+    rows,
+    { headerFill: DOCX_THEME.surfaceAlt, headerText: DOCX_THEME.muted },
+  );
+}
+
+function buildDocxHeaderFooter(report: ReportRecord): { header: Header; footer: Footer } {
+  return {
+    header: new Header({
+      children: [
+        new Paragraph({
+          border: DOCX_LINE,
+          spacing: { after: 120 },
+          children: [
+            docxText('AccessOps VPAT Builder', { bold: true, color: DOCX_THEME.text, size: 18, font: 'Aptos' }),
+            docxText(`  •  ${val(report.productName, report.domain)}`, { color: DOCX_THEME.muted, size: 18, font: 'Aptos' }),
+          ],
+        }),
+      ],
+    }),
+    footer: new Footer({
+      children: [
+        new Paragraph({
+          alignment: AlignmentType.RIGHT,
+          spacing: { before: 120 },
+          children: [
+            new TextRun({
+              color: DOCX_THEME.muted,
+              size: 18,
+              font: 'Aptos',
+              children: ['Page ', PageNumber.CURRENT, ' of ', PageNumber.TOTAL_PAGES],
+            }),
+          ],
+        }),
+      ],
+    }),
+  };
+}
+
 async function buildDocx(detail: ReportDetail, variant: ExportVariant): Promise<ExportArtifact> {
   const r = detail.report;
+  const { header, footer } = buildDocxHeaderFooter(r);
   const children: (Paragraph | Table)[] = [
-    new Paragraph({ text: 'Accessibility Conformance Report', heading: HeadingLevel.TITLE }),
-    new Paragraph({ children: [new TextRun({ text: `Based on ${VERSION} — ${EDITION_META[r.edition].fullLabel}`, italics: true })] }),
-    new Paragraph({ text: 'Report Information', heading: HeadingLevel.HEADING_2 }),
+    coverHeroTable(r, variant),
+    docxParagraph('', { spacing: { after: 120 } }),
+    calloutTable(
+      variant === 'draft' ? 'draft' : 'info',
+      variant === 'draft' ? 'Draft report — human approval required' : 'Approved report',
+      variant === 'draft'
+        ? DRAFT_DISCLAIMER
+        : 'The responsible party has completed final approval. Formal exports can be shared without draft labeling.',
+    ),
+    docxParagraph('', { spacing: { after: 80 } }),
+    overviewCards(r, variant),
+    new Paragraph({ children: [new PageBreak()] }),
+    docxParagraph('Accessibility Conformance Report', {
+      size: 30,
+      bold: true,
+      color: DOCX_THEME.text,
+      spacing: { after: 40 },
+    }),
+    docxParagraph(`Based on ${VERSION} — ${EDITION_META[r.edition].fullLabel}`, {
+      size: 18,
+      italics: true,
+      color: DOCX_THEME.muted,
+      spacing: { after: 180 },
+    }),
+    docxParagraph('Report Information', {
+      heading: HeadingLevel.HEADING_1,
+      size: 26,
+      bold: true,
+      color: DOCX_THEME.accent,
+      spacing: { before: 0, after: 120 },
+    }),
     kvTable(productInfo(r)),
-    new Paragraph({ text: '' }),
-    new Paragraph({ text: 'Applicable Standards / Guidelines', heading: HeadingLevel.HEADING_2 }),
-    new Table({
-      width: { size: 100, type: WidthType.PERCENTAGE },
-      borders: BORDERS,
-      rows: [
-        new TableRow({
-          tableHeader: true,
-          children: [tc('Standard / Guideline', { bold: true, width: 50, shade: true }), tc('Included For', { bold: true, width: 50, shade: true })],
-        }),
-        ...standardsRows(r.edition, r.wcagTarget).map(([s, inc]) => new TableRow({ children: [tc(s), tc(inc)] })),
-      ],
+    docxParagraph('Applicable Standards / Guidelines', {
+      heading: HeadingLevel.HEADING_1,
+      size: 26,
+      bold: true,
+      color: DOCX_THEME.accent,
+      spacing: { before: 220, after: 120 },
     }),
-    new Paragraph({ text: '' }),
-    new Paragraph({ text: 'Terms', heading: HeadingLevel.HEADING_2 }),
-    new Table({
-      width: { size: 100, type: WidthType.PERCENTAGE },
-      borders: BORDERS,
-      rows: [
-        new TableRow({
-          tableHeader: true,
-          children: [tc('Term', { bold: true, width: 26, shade: true }), tc('Definition', { bold: true, width: 74, shade: true })],
-        }),
-        ...TERMS.map((t) => new TableRow({ children: [tc(t.term), tc(t.def)] })),
+    docxSimpleTable(
+      [
+        ['Standard / Guideline', 4680],
+        ['Included For', 4680],
       ],
+      standardsRows(r.edition, r.wcagTarget),
+    ),
+    docxParagraph('Terms', {
+      heading: HeadingLevel.HEADING_1,
+      size: 26,
+      bold: true,
+      color: DOCX_THEME.accent,
+      spacing: { before: 220, after: 120 },
     }),
+    docxSimpleTable(
+      [
+        ['Term', 2200],
+        ['Definition', 7160],
+      ],
+      TERMS.map((term) => [term.term, term.def]),
+    ),
   ];
-  if (variant === 'draft') {
-    children.splice(
-      2,
-      0,
-      new Paragraph({
-        children: [new TextRun({ text: 'DRAFT — pending review and approval', bold: true, color: 'B3261E' })],
-        alignment: AlignmentType.LEFT,
-      }),
-      new Paragraph({ children: [new TextRun({ text: DRAFT_DISCLAIMER, italics: true, color: '666666', size: 18 })] }),
-      new Paragraph({ text: '' }),
-    );
-  }
 
-  for (const rep of reportsForEdition(r.edition)) {
-    children.push(new Paragraph({ text: '' }));
-    children.push(new Paragraph({ text: rep.name, heading: HeadingLevel.HEADING_1 }));
-    children.push(new Paragraph({ children: [new TextRun({ text: reportNoteForEdition(r.edition, rep), italics: true, size: 18 })] }));
+  for (const [reportIndex, rep] of reportsForEdition(r.edition).entries()) {
+    children.push(
+      docxParagraph(rep.name, {
+        heading: HeadingLevel.HEADING_1,
+        size: 28,
+        bold: true,
+        color: DOCX_THEME.text,
+        spacing: { before: reportIndex === 0 ? 260 : 340, after: 50 },
+        pageBreakBefore: reportIndex > 0,
+      }),
+    );
+    children.push(
+      docxParagraph(reportNoteForEdition(r.edition, rep), {
+        size: 18,
+        italics: true,
+        color: DOCX_THEME.muted,
+        spacing: { after: 140 },
+      }),
+    );
     for (const sec of rep.sections) {
       const findings = detail.findings.filter((f) => f.report === rep.id && f.section === sec.id);
       const autos = detail.auto.filter((a) => a.report === rep.id && a.section === sec.id);
       if (!findings.length && !autos.length) continue;
-      children.push(new Paragraph({ text: sec.name, heading: HeadingLevel.HEADING_3 }));
+
+      children.push(
+        docxParagraph(sec.name, {
+          heading: HeadingLevel.HEADING_2,
+          size: 22,
+          bold: true,
+          color: DOCX_THEME.accent,
+          spacing: { before: 180, after: 100 },
+        }),
+      );
       const rows = [
         ...findings.map((f) => ({ id: criterionLabel(f), level: f.status, remarks: wcagRemark(r.edition, f) })),
         ...autos.map((a) => ({ id: autoLabel(a), level: a.status, remarks: a.ref })),
@@ -318,49 +728,322 @@ async function buildDocx(detail: ReportDetail, variant: ExportVariant): Promise<
     }
   }
 
-  children.push(new Paragraph({ text: '' }));
-  children.push(new Paragraph({ text: ATTEST_HEADING, heading: HeadingLevel.HEADING_2 }));
-  children.push(new Paragraph({ text: attestationText(r, variant) }));
-
-  // Appendix: the manual procedure backing the attestation.
-  children.push(new Paragraph({ text: '' }));
-  children.push(new Paragraph({ text: 'Appendix A — Manual Test Plan', heading: HeadingLevel.HEADING_2 }));
   children.push(
-    new Paragraph({
-      children: [
-        new TextRun({
-          text: 'Automated tooling covers only part of WCAG. The pages below were evaluated with assistive technology following this procedure, which backs the attestation above.',
-          italics: true,
-          size: 18,
-        }),
-      ],
+    docxParagraph(ATTEST_HEADING, {
+      heading: HeadingLevel.HEADING_1,
+      size: 26,
+      bold: true,
+      color: DOCX_THEME.accent,
+      spacing: { before: 320, after: 100 },
+      pageBreakBefore: true,
     }),
   );
+  children.push(docxParagraph(attestationText(r, variant), { size: 19, color: DOCX_THEME.text, spacing: { after: 140 } }));
+
   if (detail.pages.length) {
     children.push(
-      new Paragraph({
-        children: [new TextRun({ text: 'Pages tested: ', bold: true }), new TextRun({ text: detail.pages.map((p) => p.url).join(', ') })],
+      docxParagraph('Pages included in the manual review scope', {
+        heading: HeadingLevel.HEADING_2,
+        size: 22,
+        bold: true,
+        color: DOCX_THEME.accent,
+        spacing: { before: 180, after: 90 },
+      }),
+    );
+    children.push(
+      docxSimpleTable(
+        [
+          ['Title', 2800],
+          ['URL', 6560],
+        ],
+        detail.pages.map((page) => [page.title || '(Untitled page)', page.url]),
+      ),
+    );
+  }
+
+  children.push(
+    docxParagraph('Appendix A — Manual Test Plan', {
+      heading: HeadingLevel.HEADING_1,
+      size: 26,
+      bold: true,
+      color: DOCX_THEME.accent,
+      spacing: { before: 320, after: 100 },
+      pageBreakBefore: true,
+    }),
+  );
+  children.push(
+    docxParagraph(
+      'Automated tooling covers only part of WCAG. The steps below back the evaluator attestation and support human review of the generated draft.',
+      { size: 18, italics: true, color: DOCX_THEME.muted, spacing: { after: 140 } },
+    ),
+  );
+  for (const area of TEST_PROCEDURE) {
+    children.push(
+      docxParagraph(area.title, {
+        heading: HeadingLevel.HEADING_2,
+        size: 22,
+        bold: true,
+        color: DOCX_THEME.text,
+        spacing: { before: 140, after: 70 },
+      }),
+    );
+    for (const step of area.steps) {
+      children.push(
+        docxParagraph(step, {
+          size: 18,
+          color: DOCX_THEME.text,
+          spacing: { after: 50 },
+          bullet: { level: 0 },
+        }),
+      );
+    }
+    children.push(
+      docxParagraph(`Covers: ${area.criteria.join(', ')}`, {
+        size: 17,
+        italics: true,
+        color: DOCX_THEME.muted,
+        spacing: { after: 110 },
       }),
     );
   }
-  for (const area of TEST_PROCEDURE) {
-    children.push(new Paragraph({ text: area.title, heading: HeadingLevel.HEADING_3 }));
-    for (const s of area.steps) children.push(new Paragraph({ text: s, bullet: { level: 0 } }));
-    children.push(new Paragraph({ children: [new TextRun({ text: `Covers: ${area.criteria.join(', ')}`, italics: true, color: '666666', size: 18 })] }));
-  }
 
   const doc = new Document({
+    creator: 'AccessOps',
+    title: `Accessibility Conformance Report — ${val(r.productName, r.domain)}`,
+    description: `${variant === 'draft' ? 'Draft' : 'Approved'} VPAT export for ${val(r.productName, r.domain)}`,
     sections: [
       {
+        headers: { default: header },
+        footers: { default: footer },
+        properties: {
+          page: {
+            size: { width: DOCX_PAGE.width, height: DOCX_PAGE.height },
+            margin: {
+              top: DOCX_PAGE.margin,
+              right: DOCX_PAGE.margin,
+              bottom: DOCX_PAGE.margin,
+              left: DOCX_PAGE.margin,
+              header: DOCX_PAGE.headerFooter,
+              footer: DOCX_PAGE.headerFooter,
+            },
+          },
+        },
         children,
       },
     ],
+    features: {
+      updateFields: true,
+    },
   });
   const buffer = await Packer.toBuffer(doc);
   return {
     buffer,
     contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     filename: filename(detail, 'docx', variant),
+  };
+}
+
+async function buildXlsx(detail: ReportDetail, variant: ExportVariant): Promise<ExportArtifact> {
+  const workbook = new ExcelJS.Workbook();
+  const report = detail.report;
+  workbook.creator = 'AccessOps';
+  workbook.created = new Date();
+  workbook.modified = new Date();
+  workbook.title = `VPAT review workbook — ${val(report.productName, report.domain)}`;
+  workbook.subject = `${variant === 'draft' ? 'Draft' : 'Approved'} internal review workbook`;
+
+  const findingsRangeStart = 2;
+  const findingsRangeEnd = Math.max(findingsRangeStart, detail.findings.length + 1);
+  const statusCol = 'F';
+  const approvedCol = 'H';
+
+  const overview = workbook.addWorksheet('Overview', {
+    views: [{ state: 'frozen', ySplit: 5, showGridLines: false }],
+  });
+  overview.columns = [
+    { key: 'a', width: 28 },
+    { key: 'b', width: 46 },
+    { key: 'c', width: 20 },
+    { key: 'd', width: 20 },
+  ];
+  overview.mergeCells('A1:D1');
+  overview.getCell('A1').value = 'AccessOps VPAT Review Workbook';
+  overview.getCell('A1').font = { name: 'Aptos Display', size: 18, bold: true, color: { argb: `FF${DOCX_THEME.surface}` } };
+  overview.getCell('A1').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: `FF${DOCX_THEME.accent}` } };
+  overview.getCell('A1').alignment = { vertical: 'middle', horizontal: 'left' };
+  overview.getRow(1).height = 26;
+  overview.getCell('A2').value =
+    variant === 'draft'
+      ? 'Formal deliverables remain PDF and Word. This workbook is for internal audit, review, evidence triage, and approval prep.'
+      : 'Formal deliverables remain PDF and Word. This workbook captures the approved report data in a filterable internal-review format.';
+  overview.mergeCells('A2:D2');
+  overview.getCell('A2').font = { name: 'Aptos', size: 11, color: { argb: `FF${DOCX_THEME.text}` } };
+  overview.getCell('A2').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: `FF${DOCX_THEME.accentSoft}` } };
+  overview.getCell('A2').alignment = { wrapText: true, vertical: 'middle' };
+  overview.getRow(2).height = 36;
+
+  const overviewInfo: [string, string][] = [
+    ['Product / Version', `${val(report.productName, report.domain)}${report.productVersion ? ` — ${report.productVersion}` : ''}`],
+    ['Edition', EDITION_META[report.edition].fullLabel],
+    ['WCAG target', `Level ${report.wcagTarget}`],
+    ['Vendor', val(report.vendorName, 'Not provided')],
+    ['Evaluator', [report.evaluatorName, report.evaluatorOrg].filter(Boolean).join(', ') || 'Not provided'],
+    ['Status', variant === 'draft' ? 'Draft — approval still required' : 'Approved'],
+    ['Finalized at', report.finalizedAt ? new Date(report.finalizedAt).toLocaleString('en-US') : 'Pending final approval'],
+    ['Finalized by', report.finalizedByEmail ?? 'Pending final approval'],
+  ];
+  let infoRow = 4;
+  for (const [label, value] of overviewInfo) {
+    overview.getCell(`A${infoRow}`).value = label;
+    overview.getCell(`B${infoRow}`).value = value;
+    overview.getCell(`A${infoRow}`).font = { bold: true, color: { argb: `FF${DOCX_THEME.muted}` } };
+    overview.getCell(`A${infoRow}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: `FF${DOCX_THEME.surfaceAlt}` } };
+    overview.getCell(`B${infoRow}`).alignment = { wrapText: true, vertical: 'top' };
+    infoRow += 1;
+  }
+
+  overview.getCell('D4').value = 'Finding Summary';
+  overview.getCell('D4').font = { bold: true, color: { argb: `FF${DOCX_THEME.accent}` } };
+  const summaryRows: [string, string][] = [
+    ['Supports', `COUNTIF(Findings!$${statusCol}$${findingsRangeStart}:$${statusCol}$${findingsRangeEnd},"Supports")`],
+    ['Partially Supports', `COUNTIF(Findings!$${statusCol}$${findingsRangeStart}:$${statusCol}$${findingsRangeEnd},"Partially Supports")`],
+    ['Does Not Support', `COUNTIF(Findings!$${statusCol}$${findingsRangeStart}:$${statusCol}$${findingsRangeEnd},"Does Not Support")`],
+    ['Not Applicable', `COUNTIF(Findings!$${statusCol}$${findingsRangeStart}:$${statusCol}$${findingsRangeEnd},"Not Applicable")`],
+    ['Approved findings', `COUNTIF(Findings!$${approvedCol}$${findingsRangeStart}:$${approvedCol}$${findingsRangeEnd},"Yes")`],
+  ];
+  let summaryRow = 5;
+  for (const [label, formula] of summaryRows) {
+    overview.getCell(`D${summaryRow}`).value = label;
+    overview.getCell(`D${summaryRow}`).font = { bold: true, color: { argb: `FF${DOCX_THEME.text}` } };
+    overview.getCell(`D${summaryRow}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: `FF${DOCX_THEME.surfaceAlt}` } };
+    overview.getCell(`E${summaryRow}`).value = { formula };
+    summaryRow += 1;
+  }
+
+  for (let row = 4; row < summaryRow; row += 1) {
+    ['A', 'B', 'D', 'E'].forEach((col) => {
+      overview.getCell(`${col}${row}`).border = {
+        top: { style: 'thin', color: { argb: `FF${DOCX_THEME.border}` } },
+        left: { style: 'thin', color: { argb: `FF${DOCX_THEME.border}` } },
+        bottom: { style: 'thin', color: { argb: `FF${DOCX_THEME.border}` } },
+        right: { style: 'thin', color: { argb: `FF${DOCX_THEME.border}` } },
+      };
+    });
+  }
+
+  const findingsSheet = workbook.addWorksheet('Findings', {
+    views: [{ state: 'frozen', ySplit: 1 }],
+  });
+  findingsSheet.columns = [
+    { header: 'Report', key: 'report', width: 16 },
+    { header: 'Section', key: 'section', width: 24 },
+    { header: 'Criterion ID', key: 'criterionId', width: 14 },
+    { header: 'Criterion', key: 'criterion', width: 38 },
+    { header: 'Level', key: 'level', width: 10 },
+    { header: 'Status', key: 'status', width: 20 },
+    { header: 'Confidence', key: 'confidence', width: 12 },
+    { header: 'Approved', key: 'approved', width: 12 },
+    { header: 'Edited', key: 'edited', width: 10 },
+    { header: 'Automated checks', key: 'autoChecks', width: 16 },
+    { header: 'Remarks', key: 'remarks', width: 56 },
+    { header: 'Evidence summary', key: 'evidence', width: 52 },
+    { header: 'EN 301 549 refs', key: 'enRefs', width: 24 },
+    { header: 'Section 508 refs', key: 's508Refs', width: 24 },
+  ];
+  findingsSheet.autoFilter = {
+    from: 'A1',
+    to: 'N1',
+  };
+  detail.findings.forEach((finding) => {
+    const refs = crossReferenceForEdition(report.edition, finding.id);
+    findingsSheet.addRow({
+      report: REPORT_META[finding.report].short,
+      section: finding.section,
+      criterionId: finding.id,
+      criterion: finding.name,
+      level: finding.level ? `Level ${finding.level}` : '',
+      status: finding.status,
+      confidence: finding.confidence,
+      approved: finding.approved ? 'Yes' : 'No',
+      edited: finding.edited ? 'Yes' : 'No',
+      autoChecks: finding.auto,
+      remarks: finding.remarks,
+      evidence: finding.evidence.map((entry) => `${entry.type === 'issue' ? 'Issue' : 'Pass'}: ${entry.text} (${entry.where})`).join('\n'),
+      enRefs: refs.en.join(', '),
+      s508Refs: refs.s508.join(', '),
+    });
+  });
+  findingsSheet.getRow(1).font = { bold: true, color: { argb: `FF${DOCX_THEME.accent}` } };
+  findingsSheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: `FF${DOCX_THEME.accentSoft}` } };
+  findingsSheet.getRow(1).alignment = { vertical: 'middle', wrapText: true };
+  findingsSheet.eachRow((row, rowNumber) => {
+    row.eachCell((cell) => {
+      cell.border = {
+        top: { style: 'thin', color: { argb: `FF${DOCX_THEME.border}` } },
+        left: { style: 'thin', color: { argb: `FF${DOCX_THEME.border}` } },
+        bottom: { style: 'thin', color: { argb: `FF${DOCX_THEME.border}` } },
+        right: { style: 'thin', color: { argb: `FF${DOCX_THEME.border}` } },
+      };
+      cell.alignment = { vertical: 'top', wrapText: true };
+    });
+    if (rowNumber > 1) {
+      const fill = statusFill(String(row.getCell(6).value ?? ''));
+      row.getCell(6).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: `FF${fill.fill}` } };
+      row.getCell(6).font = { bold: true, color: { argb: `FF${fill.text}` } };
+      row.getCell(7).numFmt = '0%';
+    }
+  });
+
+  const pagesSheet = workbook.addWorksheet('Pages Tested', {
+    views: [{ state: 'frozen', ySplit: 1 }],
+  });
+  pagesSheet.columns = [
+    { header: 'Title', key: 'title', width: 36 },
+    { header: 'URL', key: 'url', width: 72 },
+    { header: 'Authenticated', key: 'auth', width: 14 },
+  ];
+  detail.pages.forEach((page) => pagesSheet.addRow({ title: page.title || '(Untitled page)', url: page.url, auth: page.isAuth ? 'Yes' : 'No' }));
+  pagesSheet.getRow(1).font = { bold: true, color: { argb: `FF${DOCX_THEME.accent}` } };
+  pagesSheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: `FF${DOCX_THEME.accentSoft}` } };
+
+  const planSheet = workbook.addWorksheet('Manual Test Plan', {
+    views: [{ state: 'frozen', ySplit: 1 }],
+  });
+  planSheet.columns = [
+    { header: 'Area', key: 'area', width: 28 },
+    { header: 'Step', key: 'step', width: 72 },
+    { header: 'Covers', key: 'covers', width: 38 },
+  ];
+  for (const area of TEST_PROCEDURE) {
+    area.steps.forEach((step, index) => {
+      planSheet.addRow({
+        area: index === 0 ? area.title : '',
+        step,
+        covers: index === 0 ? area.criteria.join(', ') : '',
+      });
+    });
+  }
+  planSheet.getRow(1).font = { bold: true, color: { argb: `FF${DOCX_THEME.accent}` } };
+  planSheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: `FF${DOCX_THEME.accentSoft}` } };
+  [pagesSheet, planSheet].forEach((sheet) => {
+    sheet.eachRow((row) => {
+      row.eachCell((cell) => {
+        cell.border = {
+          top: { style: 'thin', color: { argb: `FF${DOCX_THEME.border}` } },
+          left: { style: 'thin', color: { argb: `FF${DOCX_THEME.border}` } },
+          bottom: { style: 'thin', color: { argb: `FF${DOCX_THEME.border}` } },
+          right: { style: 'thin', color: { argb: `FF${DOCX_THEME.border}` } },
+        };
+        cell.alignment = { vertical: 'top', wrapText: true };
+      });
+    });
+  });
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  return {
+    buffer: Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer),
+    contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    filename: filename(detail, 'xlsx', variant),
   };
 }
 
@@ -578,7 +1261,6 @@ function coverHero(doc: PdfDoc, report: ReportRecord, variant: ExportVariant): v
   doc.save();
   doc.roundedRect(left, y, usable, height, 18).fill(PDF_THEME.accent);
   doc.fillOpacity(0.1).roundedRect(left + usable - rightPanelWidth, y, rightPanelWidth, height, 18).fill('#FFFFFF');
-  doc.fillOpacity(0.08).roundedRect(left + 18, y + 18, 122, 162, 18).fill('#FFFFFF');
   doc.fillOpacity(1);
   drawBrandLogo(doc, left + 24, y + 24, 54);
   doc
@@ -940,6 +1622,8 @@ export function buildExport(format: ExportFormat, detail: ReportDetail, variant:
   switch (format) {
     case 'vpat':
       return Promise.resolve(buildVpat(detail, variant));
+    case 'xlsx':
+      return buildXlsx(detail, variant);
     case 'docx':
       return buildDocx(detail, variant);
     case 'pdf':
