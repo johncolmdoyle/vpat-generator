@@ -1,7 +1,7 @@
 /* Step 6 — Report: conformance summary, per-report breakdown, ACR header, downloads.
    With an API the export is a real DOCX/PDF/JSON in S3 (BACKEND.md §5); in mock mode
    it just confirms a generated filename. */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   EDITION_META,
   reportsForEdition,
@@ -68,6 +68,7 @@ export function DownloadScreen({
   const [draftDownloaded, setDraftDownloaded] = useState(reportStatus === 'final');
   const [finalizeBusy, setFinalizeBusy] = useState(false);
   const [finalizeError, setFinalizeError] = useState<string | null>(null);
+  const [draftDownloadsCollapsed, setDraftDownloadsCollapsed] = useState(reportStatus === 'final');
   const domain = state.domain || 'clarus-health.example';
   const level = state.level ?? 'AA';
   const levelRank = { A: 1, AA: 2, AAA: 3 }[level];
@@ -116,6 +117,14 @@ export function DownloadScreen({
   const mockName = (label: string) =>
     `VPAT2.5Rev-${edition}-${domain.replace(/\..*/, '')}-${today.replace(/\s|,/g, '')}.${ext(label)}`;
 
+  useEffect(() => {
+    if (reportStatus === 'final') {
+      setIsFinalized(true);
+      setDraftDownloaded(true);
+      setDraftDownloadsCollapsed(true);
+    }
+  }, [reportStatus]);
+
   const onDownload = (label: string, variant: 'draft' | 'approved') => {
     setExportError(null);
     if (hasApi && reportId) {
@@ -148,6 +157,7 @@ export function DownloadScreen({
         .finalizeReport(reportId)
         .then(() => {
           setIsFinalized(true);
+          setDraftDownloadsCollapsed(true);
           onFinalized?.();
           onExported?.();
         })
@@ -159,6 +169,7 @@ export function DownloadScreen({
       return;
     }
     setIsFinalized(true);
+    setDraftDownloadsCollapsed(true);
   };
 
   return (
@@ -400,19 +411,41 @@ export function DownloadScreen({
               Download and review the draft with your evaluator or responsible approver before you finalize it.
             </div>
           </div>
-          <div className="row wrap" style={{ gap: 9 }}>
-            {downloads.map(([fmt, Ic], i) => (
-              <button
-                key={fmt}
-                className={i === 0 ? 'btn btn-primary' : 'btn btn-ghost'}
-                onClick={() => onDownload(fmt, 'draft')}
-              >
-                {i === 0 ? <Icons.download size={16} className="ic" /> : <Ic size={16} className="ic" />}
-                {fmt}
-              </button>
-            ))}
+          {isFinalized && (
+            <button className="btn btn-ghost btn-sm" onClick={() => setDraftDownloadsCollapsed((open) => !open)}>
+              {draftDownloadsCollapsed ? 'Show draft downloads' : 'Hide draft downloads'}
+            </button>
+          )}
+        </div>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateRows: draftDownloadsCollapsed ? '0fr' : '1fr',
+            transition: 'grid-template-rows .24s ease, opacity .24s ease',
+            opacity: draftDownloadsCollapsed ? 0.55 : 1,
+            marginTop: 14,
+          }}
+        >
+          <div style={{ overflow: 'hidden' }}>
+            <div className="row wrap" style={{ gap: 9 }}>
+              {downloads.map(([fmt, Ic], i) => (
+                <button
+                  key={fmt}
+                  className={i === 0 ? 'btn btn-primary' : 'btn btn-ghost'}
+                  onClick={() => onDownload(fmt, 'draft')}
+                >
+                  {i === 0 ? <Icons.download size={16} className="ic" /> : <Ic size={16} className="ic" />}
+                  {fmt}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
+        {isFinalized && draftDownloadsCollapsed && (
+          <div className="faint" style={{ fontSize: 11.5, marginTop: 12 }}>
+            Draft downloads minimized after approval. Expand if you need to re-check the pre-approval file.
+          </div>
+        )}
         {downloaded && (
           <div
             className="row screen"
@@ -456,12 +489,27 @@ export function DownloadScreen({
             </div>
           </div>
           <button
-            className="btn btn-primary"
+            className="btn"
             onClick={onFinalize}
             disabled={isFinalized || !draftDownloaded || finalizeBusy}
-            style={!isFinalized && !draftDownloaded ? { opacity: 0.55, cursor: 'not-allowed' } : undefined}
+            style={
+              draftDownloaded && !isFinalized
+                ? {
+                    background: 'var(--ok)',
+                    color: 'white',
+                    border: '1px solid color-mix(in oklab, var(--ok) 70%, black 10%)',
+                    boxShadow: '0 8px 20px -12px color-mix(in oklab, var(--ok) 44%, transparent)',
+                  }
+                : !draftDownloaded
+                  ? { opacity: 0.55, cursor: 'not-allowed' }
+                  : {
+                      background: 'var(--ok-bg)',
+                      color: 'var(--ok)',
+                      border: '1px solid color-mix(in oklab, var(--ok) 22%, var(--border))',
+                    }
+            }
           >
-            {isFinalized ? 'Final approval recorded' : finalizeBusy ? 'Recording final approval...' : 'Final Approval'}
+            {finalizeBusy ? 'Approving report...' : 'Approve Report'}
           </button>
         </div>
         {!draftDownloaded && !isFinalized && (
@@ -479,7 +527,7 @@ export function DownloadScreen({
               <Icons.checkCircle size={17} />
             </span>
             <span style={{ fontSize: 13, color: 'var(--ok)', fontWeight: 600 }}>
-              Final approval recorded. Approved exports no longer include draft labeling.
+              Report approved. Approved exports no longer include draft labeling.
             </span>
           </div>
         )}

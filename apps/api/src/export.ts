@@ -434,6 +434,36 @@ function drawPageChrome(doc: PdfDoc, report: ReportRecord): void {
   doc.y = 96;
 }
 
+function drawBrandMark(doc: PdfDoc, x: number, y: number, size: number, bg = PDF_THEME.accent): void {
+  const tile = size;
+  const cx = x + tile / 2;
+  const cy = y + tile / 2;
+  doc.save();
+  doc.roundedRect(x, y, tile, tile, Math.max(6, tile * 0.18)).fill(bg);
+  doc
+    .lineWidth(Math.max(1.5, tile * 0.075))
+    .strokeColor('#FFFFFF')
+    .opacity(0.55)
+    .circle(cx, cy, tile * 0.34)
+    .stroke();
+  doc.opacity(1).fillColor('#FFFFFF').circle(cx, y + tile * 0.24, tile * 0.075).fill();
+  doc
+    .lineWidth(Math.max(2, tile * 0.085))
+    .strokeColor('#FFFFFF')
+    .moveTo(x + tile * 0.3, y + tile * 0.43)
+    .lineTo(x + tile * 0.7, y + tile * 0.43)
+    .moveTo(cx, y + tile * 0.32)
+    .lineTo(cx, y + tile * 0.62)
+    .moveTo(cx, y + tile * 0.62)
+    .lineTo(x + tile * 0.38, y + tile * 0.8)
+    .moveTo(cx, y + tile * 0.62)
+    .lineTo(x + tile * 0.62, y + tile * 0.8)
+    .lineCap('round')
+    .lineJoin('round')
+    .stroke();
+  doc.restore();
+}
+
 function drawWatermark(doc: PdfDoc): void {
   doc.save();
   doc.rotate(-45, { origin: [doc.page.width / 2, doc.page.height / 2] });
@@ -504,24 +534,97 @@ function infoGrid(doc: PdfDoc, rows: [string, string][]): void {
     });
     const rowHeight = Math.max(...measured);
     ensureSpace(doc, rowHeight + 8);
+    const rowTop = doc.y;
     let x = left;
     slice.forEach(([label, value], cardIndex) => {
-      doc.roundedRect(x, doc.y, colWidth, rowHeight, 10).fillAndStroke(PDF_THEME.surface, PDF_THEME.border);
+      doc.roundedRect(x, rowTop, colWidth, rowHeight, 10).fillAndStroke(PDF_THEME.surface, PDF_THEME.border);
       doc
         .font('Helvetica-Bold')
         .fontSize(8.5)
         .fillColor(PDF_THEME.muted)
-        .text(label.toUpperCase(), x + 14, doc.y + 10, { width: colWidth - 28 });
+        .text(label.toUpperCase(), x + 14, rowTop + 10, { width: colWidth - 28 });
       doc
         .font('Helvetica')
         .fontSize(10)
         .fillColor(PDF_THEME.text)
-        .text(value, x + 14, doc.y + 24, { width: colWidth - 28, lineGap: 1 });
+        .text(value, x + 14, rowTop + 24, { width: colWidth - 28, lineGap: 1 });
       x += colWidth + (cardIndex === 0 ? gap : 0);
     });
-    doc.y += rowHeight + 8;
+    doc.y = rowTop + rowHeight + 8;
     index += 2;
   }
+}
+
+function coverHero(doc: PdfDoc, report: ReportRecord, variant: ExportVariant): void {
+  const left = doc.page.margins.left;
+  const usable = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+  const y = doc.y;
+  const height = 232;
+  ensureSpace(doc, height + 10);
+  const rightPanelWidth = 228;
+  const leftWidth = usable - rightPanelWidth - 34;
+  doc.save();
+  doc.roundedRect(left, y, usable, height, 18).fill(PDF_THEME.accent);
+  doc.fillOpacity(0.1).roundedRect(left + usable - rightPanelWidth, y, rightPanelWidth, height, 18).fill('#FFFFFF');
+  doc.fillOpacity(0.08).roundedRect(left + 18, y + 18, 122, 162, 18).fill('#FFFFFF');
+  doc.fillOpacity(1);
+  drawBrandMark(doc, left + 24, y + 24, 54);
+  doc
+    .font('Helvetica-Bold')
+    .fontSize(22)
+    .fillColor('#FFFFFF')
+    .text('AccessOps', left + 92, y + 28, { width: leftWidth - 30 });
+  doc
+    .font('Helvetica')
+    .fontSize(10.5)
+    .fillColor('#DEE3FF')
+    .text('VPAT Builder - International Edition', left + 92, y + 54, { width: leftWidth - 30 });
+  const productTitle = val(report.productName, report.domain);
+  doc.font('Helvetica-Bold').fontSize(20);
+  const productTitleHeight = doc.heightOfString(productTitle, { width: leftWidth, lineGap: 2 });
+  doc
+    .font('Helvetica-Bold')
+    .fontSize(20)
+    .fillColor('#FFFFFF')
+    .text(productTitle, left + 24, y + 96, { width: leftWidth, lineGap: 2 });
+  doc
+    .font('Helvetica')
+    .fontSize(9.6)
+    .fillColor('#E7EBFF')
+    .text(
+      variant === 'draft'
+        ? 'Branded draft report for evaluator review, procurement preparation, and internal accessibility sign-off.'
+        : 'Approved accessibility conformance report prepared for procurement, legal review, and customer distribution.',
+      left + 24,
+      y + 112 + productTitleHeight,
+      { width: leftWidth - 8, lineGap: 2 },
+    );
+
+  const chipRows: [string, string][] = [
+    ['Edition', EDITION_META[report.edition].fullLabel],
+    ['WCAG target', `Level ${report.wcagTarget}`],
+    ['Vendor', val(report.vendorName, 'Not provided')],
+    ['Contact', val(report.contactEmail, `accessibility@${report.domain}`)],
+  ];
+  const chipX = left + usable - rightPanelWidth + 22;
+  const chipWidth = rightPanelWidth - 44;
+  let chipY = y + 28;
+  for (const [label, value] of chipRows) {
+    doc.roundedRect(chipX, chipY, chipWidth, 38, 16).fill('#FFFFFF');
+    doc
+      .font('Helvetica-Bold')
+      .fontSize(7.5)
+      .fillColor(PDF_THEME.accent)
+      .text(label.toUpperCase(), chipX + 14, chipY + 8, { width: chipWidth - 28 });
+    doc
+      .font('Helvetica')
+      .fontSize(9.2)
+      .fillColor(PDF_THEME.text)
+      .text(value, chipX + 14, chipY + 19, { width: chipWidth - 28, lineGap: 1 });
+    chipY += 43;
+  }
+  doc.restore();
+  doc.y = y + height + 18;
 }
 
 function simpleTable(doc: PdfDoc, title: string, rows: [string, string][]): void {
@@ -574,20 +677,24 @@ function callout(doc: PdfDoc, tone: 'draft' | 'info', title: string, body: strin
   const text = tone === 'draft' ? PDF_THEME.draft : PDF_THEME.accent;
   const left = doc.page.margins.left;
   const usable = doc.page.width - doc.page.margins.left - doc.page.margins.right;
-  const height = Math.max(66, doc.heightOfString(body, { width: usable - 32 }) + 34);
+  const bodyWidth = usable - 32;
+  const titleHeight = doc.heightOfString(title, { width: bodyWidth });
+  const bodyHeight = doc.heightOfString(body, { width: bodyWidth, lineGap: 2 });
+  const height = Math.max(72, 26 + titleHeight + bodyHeight);
   ensureSpace(doc, height + 8);
-  doc.roundedRect(left, doc.y, usable, height, 12).fill(fill);
+  const y = doc.y;
+  doc.roundedRect(left, y, usable, height, 12).fill(fill);
   doc
     .font('Helvetica-Bold')
     .fontSize(11)
     .fillColor(text)
-    .text(title, left + 16, doc.y + 14, { width: usable - 32 });
+    .text(title, left + 16, y + 14, { width: bodyWidth });
   doc
     .font('Helvetica')
     .fontSize(9.5)
     .fillColor(PDF_THEME.text)
-    .text(body, left + 16, doc.y + 30, { width: usable - 32, lineGap: 2 });
-  doc.y += height + 10;
+    .text(body, left + 16, y + 18 + titleHeight, { width: bodyWidth, lineGap: 2 });
+  doc.y = y + height + 10;
 }
 
 function findingCard(doc: PdfDoc, edition: ReportEdition, finding: Finding): void {
@@ -652,20 +759,24 @@ function autoRowsCard(doc: PdfDoc, title: string, rows: AutoRow[]): void {
   const left = doc.page.margins.left;
   const usable = doc.page.width - doc.page.margins.left - doc.page.margins.right;
   const content = rows.map((row) => `${row.id} ${row.name}\n${row.ref}`).join('\n\n');
-  const height = Math.max(90, 32 + doc.heightOfString(content, { width: usable - 32, lineGap: 2 }));
+  const width = usable - 32;
+  const titleHeight = doc.heightOfString(title, { width });
+  const contentHeight = doc.heightOfString(content, { width, lineGap: 2 });
+  const height = Math.max(90, 28 + titleHeight + contentHeight);
   ensureSpace(doc, height + 10);
-  doc.roundedRect(left, doc.y, usable, height, 12).fillAndStroke(PDF_THEME.surfaceAlt, PDF_THEME.border);
+  const y = doc.y;
+  doc.roundedRect(left, y, usable, height, 12).fillAndStroke(PDF_THEME.surfaceAlt, PDF_THEME.border);
   doc
     .font('Helvetica-Bold')
     .fontSize(10.5)
     .fillColor(PDF_THEME.text)
-    .text(title, left + 16, doc.y + 14);
+    .text(title, left + 16, y + 14, { width });
   doc
     .font('Helvetica')
     .fontSize(9)
     .fillColor(PDF_THEME.text)
-    .text(content, left + 16, doc.y + 34, { width: usable - 32, lineGap: 2 });
-  doc.y += height + 10;
+    .text(content, left + 16, y + 18 + titleHeight, { width, lineGap: 2 });
+  doc.y = y + height + 10;
 }
 
 function buildPdf(detail: ReportDetail, variant: ExportVariant): Promise<ExportArtifact> {
@@ -682,18 +793,19 @@ function buildPdf(detail: ReportDetail, variant: ExportVariant): Promise<ExportA
     const r = detail.report;
     decoratePage(doc, r, variant);
 
+    coverHero(doc, r, variant);
     doc
       .font('Helvetica-Bold')
-      .fontSize(26)
+      .fontSize(27)
       .fillColor(PDF_THEME.text)
-      .text('Accessibility Conformance Report', { width: 420 });
-    doc.moveDown(0.2);
+      .text('Accessibility Conformance Report', doc.page.margins.left, doc.y, { width: 430 });
+    doc.moveDown(0.18);
     doc
       .font('Helvetica')
       .fontSize(11.5)
       .fillColor(PDF_THEME.muted)
-      .text(`Based on ${VERSION} - ${EDITION_META[r.edition].fullLabel}`, { width: 420 });
-    doc.moveDown(0.7);
+      .text(`Based on ${VERSION} - ${EDITION_META[r.edition].fullLabel}`, doc.page.margins.left, doc.y, { width: 430 });
+    doc.moveDown(0.5);
 
     if (variant === 'draft') {
       callout(doc, 'draft', 'Draft pending review and approval', DRAFT_DISCLAIMER);
@@ -702,21 +814,21 @@ function buildPdf(detail: ReportDetail, variant: ExportVariant): Promise<ExportA
     sectionHeading(
       doc,
       'Report Overview',
-      val(r.productName, r.domain),
+      'Report summary',
       variant === 'draft'
-        ? 'This branded draft is designed to be easier for procurement, legal, accessibility, and customer-facing teams to review together.'
+        ? 'Use this draft to review factual accuracy, confirm evaluator language, and align final conformance statements before approval.'
         : 'This approved report is formatted for procurement, legal, accessibility, and customer-facing review.',
     );
 
     infoGrid(doc, [
-      ['Edition', EDITION_META[r.edition].fullLabel],
-      ['WCAG Target', `Level ${r.wcagTarget}`],
       ['Product / Version', `${val(r.productName, r.domain)}${r.productVersion ? ` - ${r.productVersion}` : ''}`],
-      ['Vendor', val(r.vendorName, 'Not provided')],
-      ['Contact', val(r.contactEmail, `accessibility@${r.domain}`)],
+      ['Domain', r.domain],
       ['Evaluation Period', r.evaluationStart || r.evaluationEnd ? `${isoToLong(r.evaluationStart)} - ${isoToLong(r.evaluationEnd)}` : 'Not provided'],
-      ['Evaluator', [r.evaluatorName, r.evaluatorOrg].filter(Boolean).join(', ') || 'Not provided'],
       ['Report Date', longDate()],
+      ['Evaluator', [r.evaluatorName, r.evaluatorOrg].filter(Boolean).join(', ') || 'Not provided'],
+      ['Assistive Tech', r.assistiveTech.length ? r.assistiveTech.join('; ') : 'Not provided'],
+      ['Test Environment', r.testEnvironments.length ? r.testEnvironments.join('; ') : 'Not provided'],
+      ['Notes', val(r.notes, 'No additional notes provided')],
     ]);
 
     if (r.productDescription) {
