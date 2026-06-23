@@ -20,6 +20,7 @@ import type {
   CreateSupportRequestResponse,
   ExportFormat,
   ExportResponse,
+  FinalizeReportResponse,
   Finding,
   ListReportsResponse,
   ListSupportRequestsResponse,
@@ -200,10 +201,16 @@ export const api = {
   approveAll(reportId: string) {
     return req<{ ok: boolean }>(`/api/reports/${reportId}/approve-all`, { method: 'POST' });
   },
-  exportReport(reportId: string, format: ExportFormat) {
+  exportReport(reportId: string, format: ExportFormat, variant: 'draft' | 'approved' = 'draft') {
     return req<ExportResponse>(`/api/reports/${reportId}/export`, {
       method: 'POST',
-      body: JSON.stringify({ format }),
+      body: JSON.stringify({ format, variant }),
+    });
+  },
+  finalizeReport(reportId: string) {
+    return req<FinalizeReportResponse>(`/api/reports/${reportId}/finalize`, {
+      method: 'POST',
+      body: JSON.stringify({}),
     });
   },
   /** Subscribe to the scan/draft event stream. Returns an unsubscribe fn. */

@@ -39,18 +39,22 @@ export function DownloadScreen({
   findings,
   edition,
   reportId,
+  reportStatus,
   onBack,
   onRestart,
   onExported,
+  onFinalized,
 }: {
   state: WizardForm;
   meta: ReportMeta;
   findings: Finding[];
   edition: ReportEdition;
   reportId?: string;
+  reportStatus?: 'draft' | 'scanning' | 'review' | 'final';
   onBack: () => void;
   onRestart: () => void;
   onExported?: () => void;
+  onFinalized?: () => void;
 }) {
   const reports = reportsForEdition(edition);
   const counts = countsBy(findings);
@@ -60,6 +64,10 @@ export function DownloadScreen({
   const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
   const [downloaded, setDownloaded] = useState<{ name: string; real: boolean } | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [isFinalized, setIsFinalized] = useState(reportStatus === 'final');
+  const [draftDownloaded, setDraftDownloaded] = useState(reportStatus === 'final');
+  const [finalizeBusy, setFinalizeBusy] = useState(false);
+  const [finalizeError, setFinalizeError] = useState<string | null>(null);
   const domain = state.domain || 'clarus-health.example';
   const level = state.level ?? 'AA';
   const levelRank = { A: 1, AA: 2, AAA: 3 }[level];
@@ -108,14 +116,15 @@ export function DownloadScreen({
   const mockName = (label: string) =>
     `VPAT2.5Rev-${edition}-${domain.replace(/\..*/, '')}-${today.replace(/\s|,/g, '')}.${ext(label)}`;
 
-  const onDownload = (label: string) => {
+  const onDownload = (label: string, variant: 'draft' | 'approved') => {
     setExportError(null);
     if (hasApi && reportId) {
       const fmt = ext(label) as ExportFormat;
       api
-        .exportReport(reportId, fmt)
+        .exportReport(reportId, fmt, variant)
         .then((r) => {
           setDownloaded({ name: r.filename, real: true });
+          if (variant === 'draft') setDraftDownloaded(true);
           onExported?.();
           window.open(r.url, '_blank', 'noopener');
         })
@@ -125,8 +134,31 @@ export function DownloadScreen({
           setExportError(e instanceof Error ? e.message : String(e));
         });
     } else {
-      setDownloaded({ name: mockName(label), real: false });
+      setDownloaded({ name: mockName(label).replace(/(\.[^.]+)$/, variant === 'draft' ? '-DRAFT$1' : '$1'), real: false });
+      if (variant === 'draft') setDraftDownloaded(true);
     }
+  };
+
+  const onFinalize = () => {
+    setFinalizeError(null);
+    if (isFinalized) return;
+    if (hasApi && reportId) {
+      setFinalizeBusy(true);
+      api
+        .finalizeReport(reportId)
+        .then(() => {
+          setIsFinalized(true);
+          onFinalized?.();
+          onExported?.();
+        })
+        .catch((e: unknown) => {
+          console.error('finalize failed', e);
+          setFinalizeError(e instanceof Error ? e.message : String(e));
+        })
+        .finally(() => setFinalizeBusy(false));
+      return;
+    }
+    setIsFinalized(true);
   };
 
   return (
@@ -154,7 +186,7 @@ export function DownloadScreen({
           <Icons.alert size={18} />
         </span>
         <span style={{ fontSize: 13, color: 'var(--warn)' }}>
-          <strong>This report is a DRAFT.</strong> It is prepared for{' '}
+          <strong>Start with the draft report.</strong> It is prepared for{' '}
           {[meta.evaluatorName, meta.evaluatorOrg].filter(Boolean).join(', ') || 'the named evaluator'} and must be
           reviewed and approved by the responsible party before it is published or used for procurement. Automated
           tooling catches only part of all WCAG issues — the attestation records the manual and assistive-technology
@@ -359,13 +391,13 @@ export function DownloadScreen({
         </div>
       </div>
 
-      {/* downloads */}
+      {/* draft downloads */}
       <div className="card" style={{ marginTop: 16 }}>
         <div className="row between wrap" style={{ gap: 14 }}>
           <div>
-            <div style={{ fontWeight: 600, fontSize: 15 }}>Download the report</div>
+            <div style={{ fontWeight: 600, fontSize: 15 }}>Download Draft Report</div>
             <div className="faint" style={{ fontSize: 12.5, marginTop: 3 }}>
-              VPAT® 2.5Rev {EDITION_META[edition].fullLabel} · conformance tables, remarks &amp; evidence appendix.
+              Download and review the draft with your evaluator or responsible approver before you finalize it.
             </div>
           </div>
           <div className="row wrap" style={{ gap: 9 }}>
@@ -373,7 +405,7 @@ export function DownloadScreen({
               <button
                 key={fmt}
                 className={i === 0 ? 'btn btn-primary' : 'btn btn-ghost'}
-                onClick={() => onDownload(fmt)}
+                onClick={() => onDownload(fmt, 'draft')}
               >
                 {i === 0 ? <Icons.download size={16} className="ic" /> : <Ic size={16} className="ic" />}
                 {fmt}
@@ -414,6 +446,81 @@ export function DownloadScreen({
           {edited} of {findings.length} findings edited from the AI draft before approval.
         </div>
       </div>
+
+      <div className="card" style={{ marginTop: 16, border: '1px solid color-mix(in oklab, var(--accent) 28%, var(--border))' }}>
+        <div className="row between wrap" style={{ gap: 14, alignItems: 'flex-start' }}>
+          <div style={{ maxWidth: 560 }}>
+            <div style={{ fontWeight: 600, fontSize: 15 }}>Finalize Report</div>
+            <div className="faint" style={{ fontSize: 12.5, marginTop: 3 }}>
+              Download and review the Draft report first. When final approval is complete, finalize the report to unlock approved exports without draft labeling.
+            </div>
+          </div>
+          <button
+            className="btn btn-primary"
+            onClick={onFinalize}
+            disabled={isFinalized || !draftDownloaded || finalizeBusy}
+            style={!isFinalized && !draftDownloaded ? { opacity: 0.55, cursor: 'not-allowed' } : undefined}
+          >
+            {isFinalized ? 'Final approval recorded' : finalizeBusy ? 'Recording final approval...' : 'Final Approval'}
+          </button>
+        </div>
+        {!draftDownloaded && !isFinalized && (
+          <div className="faint" style={{ fontSize: 12, marginTop: 12 }}>
+            Download the Draft report to enable final approval.
+          </div>
+        )}
+        {isFinalized && (
+          <div
+            className="row screen"
+            style={{ gap: 9, marginTop: 14, padding: '11px 14px', background: 'var(--ok-bg)', borderRadius: 'var(--radius-sm)' }}
+            role="status"
+          >
+            <span style={{ color: 'var(--ok)' }}>
+              <Icons.checkCircle size={17} />
+            </span>
+            <span style={{ fontSize: 13, color: 'var(--ok)', fontWeight: 600 }}>
+              Final approval recorded. Approved exports no longer include draft labeling.
+            </span>
+          </div>
+        )}
+        {finalizeError && (
+          <div
+            className="row screen"
+            style={{ gap: 9, marginTop: 14, padding: '11px 14px', background: 'var(--bad-bg)', borderRadius: 'var(--radius-sm)' }}
+            role="alert"
+          >
+            <span style={{ color: 'var(--bad)' }}>
+              <Icons.alert size={17} />
+            </span>
+            <span style={{ fontSize: 12.5, color: 'var(--bad)' }}>Final approval failed — {finalizeError}</span>
+          </div>
+        )}
+      </div>
+
+      {isFinalized && (
+        <div className="card" style={{ marginTop: 16 }}>
+          <div className="row between wrap" style={{ gap: 14 }}>
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 15 }}>Download Approved Report</div>
+              <div className="faint" style={{ fontSize: 12.5, marginTop: 3 }}>
+                Approved exports remove the draft label from the filename and document contents.
+              </div>
+            </div>
+            <div className="row wrap" style={{ gap: 9 }}>
+              {downloads.map(([fmt, Ic], i) => (
+                <button
+                  key={`approved-${fmt}`}
+                  className={i === 0 ? 'btn btn-primary' : 'btn btn-ghost'}
+                  onClick={() => onDownload(fmt, 'approved')}
+                >
+                  {i === 0 ? <Icons.download size={16} className="ic" /> : <Ic size={16} className="ic" />}
+                  {fmt}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       <NavBar onBack={onBack} onNext={null}>
         <button className="btn btn-quiet" onClick={onRestart}>

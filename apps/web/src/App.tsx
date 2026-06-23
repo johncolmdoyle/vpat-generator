@@ -2577,6 +2577,7 @@ function WizardApp({
   const [meta, setMeta] = useState<ReportMeta>(() => emptyReportMeta());
   const [pages, setPages] = useState<PageInfo[]>([]);
   const [reportId, setReportId] = useState<string | undefined>();
+  const [reportStatus, setReportStatus] = useState<'draft' | 'scanning' | 'review' | 'final' | undefined>();
   const [scanId, setScanId] = useState<string | undefined>();
   const [flowError, setFlowError] = useState<string | null>(null);
 
@@ -2612,6 +2613,7 @@ function WizardApp({
     });
     setPages(detailPages);
     setReportId(report.id);
+    setReportStatus(report.status);
     setScanId(scan?.id);
     reportPromise.current = Promise.resolve(report.id);
     setFlowError(null);
@@ -2643,6 +2645,7 @@ function WizardApp({
     setMeta(emptyReportMeta());
     setPages([]);
     setReportId(undefined);
+    setReportStatus(undefined);
     setScanId(undefined);
     setFlowError(null);
     reportPromise.current = null;
@@ -2661,11 +2664,12 @@ function WizardApp({
     if (hasApi) {
       try {
         reportPromise.current = api
-          .createReport({ domain: v.domain, wcagTarget: v.level, edition: v.edition, scope: v.scope })
-          .then((r) => {
-            setReportId(r.reportId);
-            return r.reportId;
-          });
+            .createReport({ domain: v.domain, wcagTarget: v.level, edition: v.edition, scope: v.scope })
+            .then((r) => {
+              setReportId(r.reportId);
+              setReportStatus('draft');
+              return r.reportId;
+            });
         await reportPromise.current;
         if (onAccountChange) {
           api.getAccount().then(onAccountChange).catch((err) => console.error('refreshAccount failed', err));
@@ -2847,6 +2851,7 @@ function WizardApp({
             findings={findings}
             edition={form.edition ?? DEFAULT_EDITION}
             reportId={reportId}
+            reportStatus={reportStatus}
             onBack={() => go(5)}
             onRestart={restart}
             onExported={() => {
@@ -2854,6 +2859,7 @@ function WizardApp({
                 api.getAccount().then(onAccountChange).catch((err) => console.error('refreshAccount failed', err));
               }
             }}
+            onFinalized={() => setReportStatus('final')}
           />
         )}
       </main>

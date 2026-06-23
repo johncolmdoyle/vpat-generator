@@ -342,23 +342,51 @@ export function buildServer() {
       if (!detail) return reply.code(404).send({ error: 'report not found' });
       if (!(await requireActiveSubscription(req.currentUser!.userId, reply, req.currentUser!.permissions))) return;
       const format = req.body?.format ?? 'pdf';
+      const variant = req.body?.variant ?? 'draft';
+      if (variant === 'approved' && detail.report.status !== 'final') {
+        return reply.code(409).send({ error: 'report must be finalized before downloading approved exports' });
+      }
 
-      const artifact = await buildExport(format, detail);
+      const artifact = await buildExport(format, detail, variant);
       const key = `exports/${req.params.id}/${artifact.filename}`;
       await s3Put(key, artifact.buffer, artifact.contentType);
       await store.recordExport(req.params.id, format, key, artifact.filename);
-      await store.setReportStatus(req.params.id, 'final');
       await store.recordAuditEvent({
         actorUserId: req.currentUser!.userId,
         actorEmail: req.currentUser!.email,
         action: 'report.exported',
         targetType: 'report',
         targetId: req.params.id,
-        subject: `Exported report as ${format}`,
-        metadata: { format, filename: artifact.filename },
+        subject: `Exported ${variant} report as ${format}`,
+        metadata: { format, filename: artifact.filename, variant },
       });
       const url = await s3PresignGet(key);
       return { url, filename: artifact.filename };
+    },
+  );
+
+  app.post<{ Params: { id: string } }>(
+    '/api/reports/:id/finalize',
+    async (req, reply) => {
+      const detail = await store.getReportDetail(req.params.id, req.currentUser!.userId);
+      if (!detail) return reply.code(404).send({ error: 'report not found' });
+      if (!(await requireActiveSubscription(req.currentUser!.userId, reply, req.currentUser!.permissions))) return;
+      const pending = detail.findings.filter((finding) => !finding.approved);
+      if (pending.length) {
+        return reply.code(409).send({ error: `all findings must be approved before finalizing (${pending.length} remaining)` });
+      }
+      await store.setReportStatus(req.params.id, 'final');
+      const updated = await store.getReportRow(req.params.id, req.currentUser!.userId);
+      if (!updated) return reply.code(404).send({ error: 'report not found' });
+      await store.recordAuditEvent({
+        actorUserId: req.currentUser!.userId,
+        actorEmail: req.currentUser!.email,
+        action: 'report.finalized',
+        targetType: 'report',
+        targetId: req.params.id,
+        subject: 'Finalized report for approved export',
+      });
+      return { report: rowToReport(updated) };
     },
   );
 

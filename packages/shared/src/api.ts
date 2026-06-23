@@ -273,10 +273,15 @@ export type UpdateReportRequest = Partial<import('./types.js').ReportMeta>;
 export type ExportFormat = 'pdf' | 'docx' | 'vpat';
 export interface ExportRequest {
   format: ExportFormat;
+  variant?: 'draft' | 'approved';
 }
 export interface ExportResponse {
   url: string;
   filename: string;
+}
+
+export interface FinalizeReportResponse {
+  report: ReportRecord;
 }
 
 export type SelfServePlan = Exclude<SubscriptionPlan, 'enterprise'>;
