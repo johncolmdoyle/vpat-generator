@@ -146,6 +146,7 @@ export function rowToReport(r: ReportRow): ReportRecord {
     notes: r.notes,
     createdAt: r.created_at.toISOString(),
     finalizedAt: r.finalized_at ? r.finalized_at.toISOString() : null,
+    finalizedByEmail: null,
   };
 }
 

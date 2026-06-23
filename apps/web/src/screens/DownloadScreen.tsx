@@ -40,6 +40,8 @@ export function DownloadScreen({
   edition,
   reportId,
   reportStatus,
+  approvedAt,
+  approvedByEmail,
   onBack,
   onRestart,
   onExported,
@@ -51,10 +53,12 @@ export function DownloadScreen({
   edition: ReportEdition;
   reportId?: string;
   reportStatus?: 'draft' | 'scanning' | 'review' | 'final';
+  approvedAt?: string | null;
+  approvedByEmail?: string | null;
   onBack: () => void;
   onRestart: () => void;
   onExported?: () => void;
-  onFinalized?: () => void;
+  onFinalized?: (audit: { approvedAt: string | null; approvedByEmail: string | null }) => void;
 }) {
   const reports = reportsForEdition(edition);
   const counts = countsBy(findings);
@@ -69,6 +73,10 @@ export function DownloadScreen({
   const [finalizeBusy, setFinalizeBusy] = useState(false);
   const [finalizeError, setFinalizeError] = useState<string | null>(null);
   const [draftDownloadsCollapsed, setDraftDownloadsCollapsed] = useState(reportStatus === 'final');
+  const [approvalAudit, setApprovalAudit] = useState<{ approvedAt: string | null; approvedByEmail: string | null }>({
+    approvedAt: approvedAt ?? null,
+    approvedByEmail: approvedByEmail ?? null,
+  });
   const domain = state.domain || 'clarus-health.example';
   const level = state.level ?? 'AA';
   const levelRank = { A: 1, AA: 2, AAA: 3 }[level];
@@ -122,8 +130,9 @@ export function DownloadScreen({
       setIsFinalized(true);
       setDraftDownloaded(true);
       setDraftDownloadsCollapsed(true);
+      setApprovalAudit({ approvedAt: approvedAt ?? null, approvedByEmail: approvedByEmail ?? null });
     }
-  }, [reportStatus]);
+  }, [approvedAt, approvedByEmail, reportStatus]);
 
   const onDownload = (label: string, variant: 'draft' | 'approved') => {
     setExportError(null);
@@ -155,10 +164,15 @@ export function DownloadScreen({
       setFinalizeBusy(true);
       api
         .finalizeReport(reportId)
-        .then(() => {
+        .then(({ report }) => {
           setIsFinalized(true);
           setDraftDownloadsCollapsed(true);
-          onFinalized?.();
+          const audit = {
+            approvedAt: report.finalizedAt ?? null,
+            approvedByEmail: report.finalizedByEmail ?? null,
+          };
+          setApprovalAudit(audit);
+          onFinalized?.(audit);
           onExported?.();
         })
         .catch((e: unknown) => {
@@ -171,6 +185,15 @@ export function DownloadScreen({
     setIsFinalized(true);
     setDraftDownloadsCollapsed(true);
   };
+  const approvedWhen = approvalAudit.approvedAt
+    ? new Date(approvalAudit.approvedAt).toLocaleString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      })
+    : null;
 
   return (
     <div className="screen" style={{ maxWidth: 940, margin: '0 auto' }}>
@@ -488,29 +511,25 @@ export function DownloadScreen({
               Download and review the Draft report first. When final approval is complete, finalize the report to unlock approved exports without draft labeling.
             </div>
           </div>
-          <button
-            className="btn"
-            onClick={onFinalize}
-            disabled={isFinalized || !draftDownloaded || finalizeBusy}
-            style={
-              draftDownloaded && !isFinalized
-                ? {
-                    background: 'var(--ok)',
-                    color: 'white',
-                    border: '1px solid color-mix(in oklab, var(--ok) 70%, black 10%)',
-                    boxShadow: '0 8px 20px -12px color-mix(in oklab, var(--ok) 44%, transparent)',
-                  }
-                : !draftDownloaded
-                  ? { opacity: 0.55, cursor: 'not-allowed' }
-                  : {
-                      background: 'var(--ok-bg)',
-                      color: 'var(--ok)',
-                      border: '1px solid color-mix(in oklab, var(--ok) 22%, var(--border))',
+          {!isFinalized && (
+            <button
+              className="btn"
+              onClick={onFinalize}
+              disabled={!draftDownloaded || finalizeBusy}
+              style={
+                draftDownloaded
+                  ? {
+                      background: 'var(--ok)',
+                      color: 'white',
+                      border: '1px solid color-mix(in oklab, var(--ok) 70%, black 10%)',
+                      boxShadow: '0 8px 20px -12px color-mix(in oklab, var(--ok) 44%, transparent)',
                     }
-            }
-          >
-            {finalizeBusy ? 'Approving report...' : 'Approve Report'}
-          </button>
+                  : { opacity: 0.55, cursor: 'not-allowed' }
+              }
+            >
+              {finalizeBusy ? 'Approving report...' : 'Approve Report'}
+            </button>
+          )}
         </div>
         {!draftDownloaded && !isFinalized && (
           <div className="faint" style={{ fontSize: 12, marginTop: 12 }}>
@@ -527,7 +546,7 @@ export function DownloadScreen({
               <Icons.checkCircle size={17} />
             </span>
             <span style={{ fontSize: 13, color: 'var(--ok)', fontWeight: 600 }}>
-              Report approved. Approved exports no longer include draft labeling.
+              {`Report approved${approvalAudit.approvedByEmail ? ` by ${approvalAudit.approvedByEmail}` : ''}${approvedWhen ? ` on ${approvedWhen}` : ''}. Approved exports no longer include draft labeling.`}
             </span>
           </div>
         )}

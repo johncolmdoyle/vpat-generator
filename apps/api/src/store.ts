@@ -342,6 +342,11 @@ async function loadAuditEventsByTarget(targetType: string, targetIds: string[]):
   }));
 }
 
+async function loadLatestFinalizeAuditEvent(reportId: string): Promise<AuditEventRecord | null> {
+  const rows = await loadAuditEventsByTarget('report', [reportId]);
+  return rows.find((row) => row.action === 'report.finalized') ?? null;
+}
+
 function adminClientSummaryFromRow(row: {
   id: string;
   email: string;
@@ -879,8 +884,12 @@ export async function getReportDetail(id: string, userId: string): Promise<Repor
   const scanRow = await getLatestScanRow(id);
   const findings = await loadFindings(id);
   const pages = scanRow ? await loadPages(scanRow.id) : [];
+  const finalizeEvent = await loadLatestFinalizeAuditEvent(id);
   return {
-    report: rowToReport(reportRow),
+    report: {
+      ...rowToReport(reportRow),
+      finalizedByEmail: finalizeEvent?.actorEmail ?? null,
+    },
     scan: scanRow ? rowToScan(scanRow) : null,
     findings,
     auto: autoRowsForEdition(reportRow.edition),

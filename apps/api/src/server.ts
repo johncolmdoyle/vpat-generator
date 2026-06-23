@@ -376,8 +376,6 @@ export function buildServer() {
         return reply.code(409).send({ error: `all findings must be approved before finalizing (${pending.length} remaining)` });
       }
       await store.setReportStatus(req.params.id, 'final');
-      const updated = await store.getReportRow(req.params.id, req.currentUser!.userId);
-      if (!updated) return reply.code(404).send({ error: 'report not found' });
       await store.recordAuditEvent({
         actorUserId: req.currentUser!.userId,
         actorEmail: req.currentUser!.email,
@@ -386,7 +384,9 @@ export function buildServer() {
         targetId: req.params.id,
         subject: 'Finalized report for approved export',
       });
-      return { report: rowToReport(updated) };
+      const updated = await store.getReportDetail(req.params.id, req.currentUser!.userId);
+      if (!updated) return reply.code(404).send({ error: 'report not found' });
+      return { report: updated.report };
     },
   );
 

@@ -2578,6 +2578,8 @@ function WizardApp({
   const [pages, setPages] = useState<PageInfo[]>([]);
   const [reportId, setReportId] = useState<string | undefined>();
   const [reportStatus, setReportStatus] = useState<'draft' | 'scanning' | 'review' | 'final' | undefined>();
+  const [reportApprovedAt, setReportApprovedAt] = useState<string | null>(null);
+  const [reportApprovedByEmail, setReportApprovedByEmail] = useState<string | null>(null);
   const [scanId, setScanId] = useState<string | undefined>();
   const [flowError, setFlowError] = useState<string | null>(null);
 
@@ -2614,6 +2616,8 @@ function WizardApp({
     setPages(detailPages);
     setReportId(report.id);
     setReportStatus(report.status);
+    setReportApprovedAt(report.finalizedAt ?? null);
+    setReportApprovedByEmail(report.finalizedByEmail ?? null);
     setScanId(scan?.id);
     reportPromise.current = Promise.resolve(report.id);
     setFlowError(null);
@@ -2646,6 +2650,8 @@ function WizardApp({
     setPages([]);
     setReportId(undefined);
     setReportStatus(undefined);
+    setReportApprovedAt(null);
+    setReportApprovedByEmail(null);
     setScanId(undefined);
     setFlowError(null);
     reportPromise.current = null;
@@ -2668,6 +2674,8 @@ function WizardApp({
             .then((r) => {
               setReportId(r.reportId);
               setReportStatus('draft');
+              setReportApprovedAt(null);
+              setReportApprovedByEmail(null);
               return r.reportId;
             });
         await reportPromise.current;
@@ -2852,6 +2860,8 @@ function WizardApp({
             edition={form.edition ?? DEFAULT_EDITION}
             reportId={reportId}
             reportStatus={reportStatus}
+            approvedAt={reportApprovedAt}
+            approvedByEmail={reportApprovedByEmail}
             onBack={() => go(5)}
             onRestart={restart}
             onExported={() => {
@@ -2859,7 +2869,11 @@ function WizardApp({
                 api.getAccount().then(onAccountChange).catch((err) => console.error('refreshAccount failed', err));
               }
             }}
-            onFinalized={() => setReportStatus('final')}
+            onFinalized={({ approvedAt, approvedByEmail }) => {
+              setReportStatus('final');
+              setReportApprovedAt(approvedAt);
+              setReportApprovedByEmail(approvedByEmail);
+            }}
           />
         )}
       </main>

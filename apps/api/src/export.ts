@@ -24,6 +24,7 @@ import {
   AlignmentType,
   ShadingType,
 } from 'docx';
+import { fileURLToPath } from 'node:url';
 import PDFDocument from 'pdfkit';
 import {
   EDITION_META,
@@ -52,6 +53,7 @@ export interface ExportArtifact {
 }
 
 type ExportVariant = 'draft' | 'approved';
+const ACCESSOPS_LOGO = fileURLToPath(new URL('../assets/accessops-logo.png', import.meta.url));
 
 /* ---------- shared helpers ---------- */
 
@@ -464,6 +466,14 @@ function drawBrandMark(doc: PdfDoc, x: number, y: number, size: number, bg = PDF
   doc.restore();
 }
 
+function drawBrandLogo(doc: PdfDoc, x: number, y: number, size: number): void {
+  try {
+    doc.image(ACCESSOPS_LOGO, x, y, { width: size, height: size });
+  } catch {
+    drawBrandMark(doc, x, y, size);
+  }
+}
+
 function drawWatermark(doc: PdfDoc): void {
   doc.save();
   doc.rotate(-45, { origin: [doc.page.width / 2, doc.page.height / 2] });
@@ -483,13 +493,15 @@ function finalizePageNumbers(doc: PdfDoc): void {
   for (let i = 0; i < range.count; i++) {
     doc.switchToPage(i);
     const label = `Page ${i + 1} of ${range.count}`;
+    const y = doc.page.height - doc.page.margins.bottom - 12;
     doc
       .font('Helvetica')
       .fontSize(8.5)
       .fillColor(PDF_THEME.muted)
-      .text(label, doc.page.margins.left, doc.page.height - doc.page.margins.bottom + 10, {
+      .text(label, doc.page.margins.left, y, {
         width: doc.page.width - doc.page.margins.left - doc.page.margins.right,
         align: 'right',
+        lineBreak: false,
       });
   }
 }
@@ -568,7 +580,7 @@ function coverHero(doc: PdfDoc, report: ReportRecord, variant: ExportVariant): v
   doc.fillOpacity(0.1).roundedRect(left + usable - rightPanelWidth, y, rightPanelWidth, height, 18).fill('#FFFFFF');
   doc.fillOpacity(0.08).roundedRect(left + 18, y + 18, 122, 162, 18).fill('#FFFFFF');
   doc.fillOpacity(1);
-  drawBrandMark(doc, left + 24, y + 24, 54);
+  drawBrandLogo(doc, left + 24, y + 24, 54);
   doc
     .font('Helvetica-Bold')
     .fontSize(22)
@@ -721,10 +733,15 @@ function findingCard(doc: PdfDoc, edition: ReportEdition, finding: Finding): voi
     refLines.length ? `Cross-reference\n${refLines.map((line) => `- ${line}`).join('\n')}` : '',
   ].filter(Boolean);
   const bodyText = bodySections.join('\n\n');
-  const contentHeight = doc.heightOfString(bodyText, { width: bodyWidth, lineGap: 2 });
-  const titleHeight = doc.heightOfString(`${finding.id}  ${finding.name}`, { width: usable - 170 });
+  doc.font('Helvetica-Bold').fontSize(11.5);
+  const titleHeight = doc.heightOfString(`${finding.id}  ${finding.name}`, { width: usable - 170, lineGap: 1 });
+  doc.font('Helvetica').fontSize(9.2);
   const metaHeight = doc.heightOfString(meta, { width: bodyWidth });
-  const height = Math.max(118, 66 + titleHeight + metaHeight + contentHeight);
+  doc.font('Helvetica').fontSize(9.4);
+  const contentHeight = doc.heightOfString(bodyText, { width: bodyWidth, lineGap: 2 });
+  const metaY = 18 + titleHeight + 4;
+  const bodyY = metaY + metaHeight + 8;
+  const height = Math.max(118, bodyY + contentHeight + 16);
   ensureSpace(doc, height + 10);
   const y = doc.y;
   doc.roundedRect(left, y, usable, height, 12).fillAndStroke(PDF_THEME.surface, PDF_THEME.border);
@@ -743,16 +760,46 @@ function findingCard(doc: PdfDoc, edition: ReportEdition, finding: Finding): voi
     .font('Helvetica')
     .fontSize(9.2)
     .fillColor(PDF_THEME.muted)
-    .text(meta, left + 16, y + 34, { width: bodyWidth });
+    .text(meta, left + 16, y + metaY, { width: bodyWidth });
   doc
     .font('Helvetica')
     .fontSize(9.4)
     .fillColor(PDF_THEME.text)
-    .text(bodyText, left + 16, y + 54, {
+    .text(bodyText, left + 16, y + bodyY, {
       width: bodyWidth,
       lineGap: 2,
     });
   doc.y = y + height + 10;
+}
+
+function estimateFindingCardHeight(doc: PdfDoc, edition: ReportEdition, finding: Finding): number {
+  const usable = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+  const refs = crossReferenceForEdition(edition, finding.id);
+  const evidenceLines = finding.evidence.slice(0, 3).map((ev) => `${ev.type === 'issue' ? 'Issue' : 'Pass'}: ${ev.text} (${ev.where})`);
+  const meta = [
+    `${REPORT_META[finding.report].short}`,
+    finding.level ? `Level ${finding.level}` : '',
+    finding.ver ? `WCAG ${finding.ver}` : '',
+    `${Math.round(finding.confidence * 100)}% confidence`,
+    finding.auto ? `${finding.auto} automated checks` : '',
+  ].filter(Boolean).join(' • ');
+  const refLines = [
+    refs.en.length ? `EN 301 549: ${refs.en.join(', ')}` : '',
+    refs.s508.length ? `Section 508: ${refs.s508.join(', ')}` : '',
+  ].filter(Boolean);
+  const bodyText = [
+    finding.remarks,
+    evidenceLines.length ? `Evidence\n${evidenceLines.map((line) => `- ${line}`).join('\n')}` : '',
+    refLines.length ? `Cross-reference\n${refLines.map((line) => `- ${line}`).join('\n')}` : '',
+  ].filter(Boolean).join('\n\n');
+  const bodyWidth = usable - 32;
+  doc.font('Helvetica-Bold').fontSize(11.5);
+  const titleHeight = doc.heightOfString(`${finding.id}  ${finding.name}`, { width: usable - 170, lineGap: 1 });
+  doc.font('Helvetica').fontSize(9.2);
+  const metaHeight = doc.heightOfString(meta, { width: bodyWidth });
+  doc.font('Helvetica').fontSize(9.4);
+  const contentHeight = doc.heightOfString(bodyText, { width: bodyWidth, lineGap: 2 });
+  return Math.max(118, 18 + titleHeight + 4 + metaHeight + 8 + contentHeight + 16);
 }
 
 function autoRowsCard(doc: PdfDoc, title: string, rows: AutoRow[]): void {
@@ -851,6 +898,12 @@ function buildPdf(detail: ReportDetail, variant: ExportVariant): Promise<ExportA
         const findings = detail.findings.filter((f) => f.report === rep.id && f.section === sec.id);
         const autos = detail.auto.filter((a) => a.report === rep.id && a.section === sec.id);
         if (!findings.length && !autos.length) continue;
+        const previewHeight = findings.length
+          ? estimateFindingCardHeight(doc, r.edition, findings[0])
+          : autos.length
+            ? 140
+            : 0;
+        ensureSpace(doc, 86 + Math.min(previewHeight, 180));
         sectionHeading(doc, rep.tag, sec.name);
         for (const finding of findings) {
           findingCard(doc, r.edition, finding);

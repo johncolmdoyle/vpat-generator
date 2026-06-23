@@ -47,6 +47,7 @@ export interface ReportRecord {
   notes: string | null;
   createdAt: string;
   finalizedAt: string | null;
+  finalizedByEmail?: string | null;
 }
 
 export interface ScanRecord {
