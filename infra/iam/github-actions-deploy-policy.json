@@ -135,6 +135,7 @@
         "secretsmanager:CreateSecret",
         "secretsmanager:DeleteSecret",
         "secretsmanager:PutSecretValue",
+        "secretsmanager:UpdateSecretVersionStage",
         "secretsmanager:TagResource",
         "secretsmanager:UntagResource",
         "sqs:CreateQueue",
