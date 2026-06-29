@@ -59,8 +59,8 @@ locals {
   api_secret_refs = concat(
     [
       {
-        name      = "DATABASE_URL"
-        valueFrom = "${aws_secretsmanager_secret.db_connection.arn}:DATABASE_URL::"
+        name      = "PGPASSWORD"
+        valueFrom = "${one(aws_db_instance.postgres.master_user_secret).secret_arn}:password::"
       },
       {
         name      = "ANTHROPIC_API_KEY"
@@ -115,8 +115,8 @@ locals {
 
   worker_secret_refs = [
     {
-      name      = "DATABASE_URL"
-      valueFrom = "${aws_secretsmanager_secret.db_connection.arn}:DATABASE_URL::"
+      name      = "PGPASSWORD"
+      valueFrom = "${one(aws_db_instance.postgres.master_user_secret).secret_arn}:password::"
     },
     {
       name      = "ANTHROPIC_API_KEY"
@@ -793,6 +793,11 @@ resource "aws_ecs_task_definition" "api" {
         { name = "AWS_DEFAULT_REGION", value = var.aws_region },
         { name = "S3_BUCKET", value = aws_s3_bucket.artifacts.bucket },
         { name = "SCAN_QUEUE_NAME", value = aws_sqs_queue.scan.name },
+        { name = "PGHOST", value = aws_db_instance.postgres.address },
+        { name = "PGPORT", value = "5432" },
+        { name = "PGDATABASE", value = aws_db_instance.postgres.db_name },
+        { name = "PGUSER", value = aws_db_instance.postgres.username },
+        { name = "PGSSLMODE", value = "require" },
         { name = "PORT", value = "8080" }
       ]
       secrets = local.api_secret_refs
@@ -831,7 +836,12 @@ resource "aws_ecs_task_definition" "worker" {
         { name = "AWS_REGION", value = var.aws_region },
         { name = "AWS_DEFAULT_REGION", value = var.aws_region },
         { name = "S3_BUCKET", value = aws_s3_bucket.artifacts.bucket },
-        { name = "SCAN_QUEUE_NAME", value = aws_sqs_queue.scan.name }
+        { name = "SCAN_QUEUE_NAME", value = aws_sqs_queue.scan.name },
+        { name = "PGHOST", value = aws_db_instance.postgres.address },
+        { name = "PGPORT", value = "5432" },
+        { name = "PGDATABASE", value = aws_db_instance.postgres.db_name },
+        { name = "PGUSER", value = aws_db_instance.postgres.username },
+        { name = "PGSSLMODE", value = "require" }
       ]
       secrets = local.worker_secret_refs
       logConfiguration = {

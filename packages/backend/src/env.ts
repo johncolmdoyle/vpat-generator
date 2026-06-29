@@ -7,8 +7,32 @@ const csv = (value: string | undefined) =>
     .map((item) => item.trim().toLowerCase())
     .filter(Boolean);
 
+function buildDatabaseUrl(): string {
+  if (e.DATABASE_URL) return e.DATABASE_URL;
+
+  const host = e.PGHOST;
+  const user = e.PGUSER;
+  const password = e.PGPASSWORD;
+  const database = e.PGDATABASE;
+
+  if (host && user && password && database) {
+    const url = new URL(`postgres://${host}`);
+    url.username = user;
+    url.password = password;
+    url.pathname = `/${database}`;
+
+    if (e.PGPORT) url.port = e.PGPORT;
+    if (e.PGSSLMODE) url.searchParams.set('sslmode', e.PGSSLMODE);
+    if (e.PGSSL === 'true') url.searchParams.set('ssl', 'true');
+
+    return url.toString();
+  }
+
+  return 'postgres://vpat:vpat@localhost:5432/vpat';
+}
+
 export const env = {
-  databaseUrl: e.DATABASE_URL ?? 'postgres://vpat:vpat@localhost:5432/vpat',
+  databaseUrl: buildDatabaseUrl(),
 
   aws: {
     region: e.AWS_REGION ?? 'us-east-1',
